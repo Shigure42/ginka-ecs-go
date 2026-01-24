@@ -8,7 +8,7 @@ type TagSet struct {
 }
 
 // Tags returns a copy of tags.
-func (t TagSet) Tags() []Tag {
+func (t *TagSet) Tags() []Tag {
 	if len(t.tags) == 0 {
 		return nil
 	}
@@ -18,7 +18,7 @@ func (t TagSet) Tags() []Tag {
 }
 
 // HasTag checks if the tag exists.
-func (t TagSet) HasTag(tag Tag) bool {
+func (t *TagSet) HasTag(tag Tag) bool {
 	return HasTag(t.tags, tag)
 }
 
@@ -66,3 +66,5 @@ func (t *TagSet) SetTags(tags ...Tag) {
 	}
 	t.tags = deduped
 }
+
+var _ Taggable = (*TagSet)(nil)

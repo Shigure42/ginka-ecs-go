@@ -1,5 +1,7 @@
 package ginka_ecs_go
 
+import "fmt"
+
 // EntityCore is a reusable Entity implementation.
 //
 // It provides Enabled/tag behavior and enforces at most one Component per
@@ -16,6 +18,30 @@ type EntityCore struct {
 	componentTypes []ComponentType
 }
 
+func (e *EntityCore) Enabled() bool {
+	return e.EnabledFlag.Enabled()
+}
+
+func (e *EntityCore) SetEnabled(enabled bool) {
+	e.EnabledFlag.SetEnabled(enabled)
+}
+
+func (e *EntityCore) Tags() []Tag {
+	return e.TagSet.Tags()
+}
+
+func (e *EntityCore) HasTag(tag Tag) bool {
+	return e.TagSet.HasTag(tag)
+}
+
+func (e *EntityCore) AddTag(tag Tag) bool {
+	return e.TagSet.AddTag(tag)
+}
+
+func (e *EntityCore) RemoveTag(tag Tag) bool {
+	return e.TagSet.RemoveTag(tag)
+}
+
 // NewEntityCore creates a new EntityCore with the given id, name, type, and tags.
 func NewEntityCore(id uint64, name string, typ EntityType, tags ...Tag) *EntityCore {
 	e := &EntityCore{
@@ -25,7 +51,7 @@ func NewEntityCore(id uint64, name string, typ EntityType, tags ...Tag) *EntityC
 		components:     make(map[ComponentType]Component),
 		componentTypes: nil,
 	}
-	e.TagSet.SetTags(tags...)
+	e.SetTags(tags...)
 	return e
 }
 
@@ -63,7 +89,7 @@ func (e *EntityCore) Get(t ComponentType) (Component, bool) {
 func (e *EntityCore) MustGet(t ComponentType) Component {
 	c, ok := e.Get(t)
 	if !ok {
-		panic(ErrComponentNotFound)
+		panic(fmt.Errorf("must get component %d: %w", t, ErrComponentNotFound))
 	}
 	return c
 }
@@ -133,3 +159,8 @@ func (e *EntityCore) ForEachComponent(fn func(t ComponentType, c Component) erro
 	}
 	return nil
 }
+
+// Compile-time interface checks.
+var _ Activatable = (*EntityCore)(nil)
+var _ Taggable = (*EntityCore)(nil)
+var _ Entity = (*EntityCore)(nil)

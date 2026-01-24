@@ -1,0 +1,58 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false
+
+linters:
+  default: none
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - ineffassign
+
+    - revive
+
+    - nilerr
+    - nilnil
+    - bodyclose
+
+    - gocyclo
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+
+    revive:
+      rules:
+        - name: var-naming
+          arguments: [[], [], [{ skipInitialismNameChecks: true, skipPackageNameChecks: true }]]
+        - name: errorf
+        - name: empty-lines
+        - name: unused-parameter
+        - name: unexported-return
+        - name: imports-blacklist
+          arguments:
+            - fmt.Printf
+            - log.Printf
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclusions:
+    # Skip generated / vendor-like paths
+    paths:
+      - "^vendor/"
+      - "^third_party/"
+      - "^generated/"
+      - ".*\\.gen\\.go$"
+    # Commonly allowed cases
+    rules:
+      - linters: [errcheck]
+        text: "Close"

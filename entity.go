@@ -26,6 +26,10 @@ type Entity interface {
 	Has(t ComponentType) bool
 	// Get retrieves a component by type, returning (nil, false) if not found.
 	Get(t ComponentType) (Component, bool)
+	// MustGet retrieves a component by type, panicking if not found.
+	//
+	// The panic value should wrap ErrComponentNotFound.
+	MustGet(t ComponentType) Component
 
 	// Add attaches c to the entity.
 	//

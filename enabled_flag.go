@@ -8,7 +8,7 @@ type EnabledFlag struct {
 }
 
 // Enabled returns whether this component is enabled.
-func (a EnabledFlag) Enabled() bool {
+func (a *EnabledFlag) Enabled() bool {
 	return !a.disabled
 }
 
@@ -16,3 +16,5 @@ func (a EnabledFlag) Enabled() bool {
 func (a *EnabledFlag) SetEnabled(enabled bool) {
 	a.disabled = !enabled
 }
+
+var _ Activatable = (*EnabledFlag)(nil)

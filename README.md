@@ -1,398 +1,584 @@
-# Ginka ECS Go
+# ginka-ecs-go Documentation
+# ginka-ecs-go
 
-A lightweight, type-safe Entity Component System (ECS) library written in Go. This library provides a clean and efficient foundation for building game engines, simulations, or any application that benefits from the ECS architecture pattern.
+## Overview
 
-## Features
+ginka-ecs-go is a lightweight, in-process Entity-Component-System (ECS) library for Go. It provides a simple API for managing game entities and game logic, with built-in support for:
 
-- **Type-safe**: Full Go type safety with generics support
-- **Simple API**: Clean, idiomatic Go interfaces and implementations
-- **Persistence Ready**: Built-in data component support with dirty tracking
-- **Flexible Tagging**: Tag-based entity and component filtering
-- **Command System**: Event-driven architecture for decoupled communication
-- **Concurrent Safe**: Thread-safe entity management with RWMutex
-- **Extension Interfaces**: Optional extension interfaces for advanced querying
+- **Entity management**: Create, retrieve, and delete entities with stable IDs
+- **Component composition**: Attach data-bearing components to entities
+- **System execution**: Define business logic via systems that process entities
+- **Command routing**: Submit commands that are executed serially per entity
+- **Sharded tick execution**: Parallel tick processing with deterministic entity sharding
+- **Persistence**: Dirty tracking and serialization for data components
 
-## Architecture
-
-The ECS pattern consists of three main concepts:
-
-- **Entities**: Identifiable objects that contain components
-- **Components**: Data containers that hold state
-- **Systems**: Logic that operates on entities with specific component sets
-
-### Core Components
-
-```
-┌─────────────────────────────────┐
-│             World               │
-│  (Manages entities & systems)  │
-└────────────┬──────────────────┘
-             │
-     ┌───────┴────────┐
-     │                │
-┌────▼────┐     ┌────▼──────┐
-│ Entity  │     │ Component │
-│ - ID    │────▶│ - Data    │
-│ - Name  │     │ - Tags    │
-│ - Type  │     │ - State   │
-└─────────┘     └───────────┘
-                     │
-                ┌────▼──────┐
-                │  System   │
-                │(Business  │
-                │  Logic)   │
-                └───────────┘
-```
-
-## Installation
-
-```bash
-go get github.com/Shigure42/ginka-ecs-go
-```
-
-## Quick Start
-
-### Basic Usage
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "time"
-
-    ginka_ecs_go "github.com/Shigure42/ginka-ecs-go"
-)
-
-// Define component types
-type PositionComponent struct {
-    ginka_ecs_go.ComponentCore
-    X, Y float64
-}
-
-type VelocityComponent struct {
-    ginka_ecs_go.ComponentCore
-    DX, DY float64
-}
-
-// Define an entity factory
-func CreateEntity(id uint64, name string, typ ginka_ecs_go.EntityType, tags ...ginka_ecs_go.Tag) (ginka_ecs_go.Entity, error) {
-    entity := ginka_ecs_go.NewEntityCore(id, name, typ, tags...)
-    return entity, nil
-}
-
-// Define a system
-type MovementSystem struct{}
-
-func (s *MovementSystem) Name() string {
-    return "movement-system"
-}
-
-func (s *MovementSystem) Tick(ctx context.Context, w ginka_ecs_go.World, dt time.Duration) error {
-    // Implementation here
-    return nil
-}
-
-func main() {
-    // Create entity manager
-    factory := ginka_ecs_go.EntityFactory[ginka_ecs_go.Entity](CreateEntity)
-    manager := ginka_ecs_go.NewMapEntityManager(factory)
-
-    // Create a player entity
-    player, err := manager.Create(context.Background(), 1, "Player", 1, "player")
-    if err != nil {
-        panic(err)
-    }
-
-    // Add components
-    pos := &PositionComponent{
-        ComponentCore: ginka_ecs_go.NewComponentCore(1),
-        X: 100,
-        Y: 100,
-    }
-    player.Add(pos)
-
-    fmt.Printf("Created entity: %s (ID: %d)\n", player.Name(), player.Id())
-}
-```
-
-### Data Components with Persistence
-
-```go
-type PlayerData struct {
-    ginka_ecs_go.ComponentCore
-    Health   int
-    Mana     int
-    Level    int
-}
-
-func (p *PlayerData) PersistKey() string {
-    return "player_data"
-}
-
-func (p *PlayerData) Marshal() ([]byte, error) {
-    // Serialize player data
-    return json.Marshal(p)
-}
-
-func (p *PlayerData) Unmarshal(data []byte) error {
-    // Deserialize player data
-    return json.Unmarshal(data, p)
-}
-
-// Create a data entity
-playerData := &PlayerData{
-    ComponentCore: ginka_ecs_go.NewComponentCore(2),
-    Health: 100,
-    Mana:   50,
-    Level:  1,
-}
-
-// Set data on entity (automatically marks as dirty)
-err := playerDataEntity.SetData(playerData)
-if err != nil {
-    panic(err)
-}
-
-// Mutate data safely
-err = playerDataEntity.MutateData(2, func(dc ginka_ecs_go.DataComponent) error {
-    player := dc.(*PlayerData)
-    player.Health -= 10
-    return nil
-})
-```
-
-### Command System
-
-```go
-type AttackCommand struct {
-    AttackerID uint64
-    TargetID   uint64
-    Damage     int
-}
-
-func (a *AttackCommand) Type() ginka_ecs_go.CommandType {
-    return 1 // Attack command type
-}
-
-func (a *AttackCommand) EntityId() uint64 {
-    return a.TargetID
-}
-
-type AttackSystem struct{}
-
-func (a *AttackSystem) Name() string {
-    return "attack-system"
-}
-
-func (a *AttackSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-    attackCmd := cmd.(*AttackCommand)
-    // Handle attack logic
-    return nil
-}
-
-// Submit command to world
-cmd := &AttackCommand{
-    AttackerID: 1,
-    TargetID:   2,
-    Damage:     25,
-}
-
-err := world.Submit(context.Background(), cmd)
-if err != nil {
-    panic(err)
-}
-```
-
-## Core Types
+## Core Concepts
 
 ### Entity
 
-Entities are identified by a unique ID and can have components attached to them.
+An entity is a container for components. It has a stable ID (e.g., player ID), a human-readable name, and a type category. Entities do not contain logic or data themselves - only components hold data.
 
 ```go
 type Entity interface {
-    Activatable
-    Taggable
-
-    Id() uint64
-    Name() string
-    Type() EntityType
-
+    Id() uint64           // Stable identifier
+    Name() string         // Human-readable name
+    Type() EntityType     // Category type
     Has(t ComponentType) bool
     Get(t ComponentType) (Component, bool)
+    MustGet(t ComponentType) Component
     Add(c Component) error
     Remove(t ComponentType) bool
 }
 ```
 
+Entities also implement `Activatable` (Enabled/SetEnabled) and `Taggable` (Tags, HasTag, AddTag, RemoveTag) interfaces.
+
 ### Component
 
-Components hold data. Each component has a unique type.
+A component is a piece of data attached to an entity. Each component has a unique `ComponentType` identifier. Components should be pure data holders without business logic.
 
 ```go
 type Component interface {
-    Activatable
-    Taggable
-
     ComponentType() ComponentType
+}
+```
+
+Components also implement `Activatable` and `Taggable`, allowing individual components to be disabled or tagged.
+
+For persistence-capable components, use `DataComponent`:
+
+```go
+type DataComponent interface {
+    Component
+    PersistKey() string      // Persistence identifier (e.g., table name)
+    Marshal() ([]byte, error)
+    Unmarshal([]byte) error
 }
 ```
 
 ### System
 
-Systems contain the business logic that processes entities.
+Systems contain the business logic that processes entities. A system is identified by a unique name and can implement one or more of these interfaces:
 
 ```go
 type System interface {
     Name() string
 }
 
-type TickSystem interface {
-    System
-    Tick(ctx context.Context, w World, dt time.Duration) error
-}
-
 type CommandSystem interface {
     System
     Handle(ctx context.Context, w World, cmd Command) error
 }
-```
 
-## Advanced Usage
-
-### Tagging
-
-Entities and components can be tagged for filtering and grouping:
-
-```go
-// Add tags to entity
-player.AddTag("player")
-player.AddTag("alive")
-
-// Check tags
-if player.HasTag("player") {
-    // Handle player logic
+type ShardedTickSystem interface {
+    System
+    TickShard(ctx context.Context, w World, dt time.Duration, shardIdx, shardCount int) error
 }
 
-// Tag-based filtering in systems
-for _, entity := range entities {
-    if entity.HasTag("enemy") && entity.HasTag("alive") {
-        // Process enemy entities
+type CommandSubscriber interface {
+    SubscribedCommands() []CommandType
+}
+```
+
+### World
+
+The world is the central container that manages all entities, components, and systems. It handles command routing and system execution.
+
+```go
+type World interface {
+    Run() error
+    Stop() error
+    IsRunning() bool
+    Entities() EntityManager[DataEntity]
+    Register(systems ...System) error
+    Submit(ctx context.Context, cmd Command) error
+}
+```
+
+`CoreWorld` is the primary implementation, providing sharded command execution and tick processing.
+
+## Quick Start Guide
+
+### 1. Define Component Types
+
+```go
+package mygame
+
+import (
+    "encoding/json"
+
+    "github.com/Shigure42/ginka-ecs-go"
+)
+
+const (
+    ComponentTypePosition ginka_ecs_go.ComponentType = iota + 1
+    ComponentTypeVelocity
+    ComponentTypeHealth
+)
+
+type PositionComponent struct {
+    ginka_ecs_go.ComponentCore
+    X, Y float64
+}
+
+func NewPositionComponent(x, y float64) *PositionComponent {
+    return &PositionComponent{
+        ComponentCore: ginka_ecs_go.NewComponentCore(ComponentTypePosition),
+        X:             x,
+        Y:             y,
     }
 }
+
+// Implement DataComponent for persistence
+func (c *PositionComponent) PersistKey() string   { return "position" }
+func (c *PositionComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
+func (c *PositionComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
+
+type VelocityComponent struct {
+    ginka_ecs_go.ComponentCore
+    X, Y float64
+}
+
+func NewVelocityComponent(x, y float64) *VelocityComponent {
+    return &VelocityComponent{
+        ComponentCore: ginka_ecs_go.NewComponentCore(ComponentTypeVelocity),
+        X:             x,
+        Y:             y,
+    }
+}
+
+func (c *VelocityComponent) PersistKey() string   { return "velocity" }
+func (c *VelocityComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
+func (c *VelocityComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
+
+type HealthComponent struct {
+    ginka_ecs_go.ComponentCore
+    HP    int
+    MaxHP int
+}
+
+func NewHealthComponent(hp, maxHP int) *HealthComponent {
+    return &HealthComponent{
+        ComponentCore: ginka_ecs_go.NewComponentCore(ComponentTypeHealth),
+        HP:            hp,
+        MaxHP:         maxHP,
+    }
+}
+
+func (c *HealthComponent) PersistKey() string   { return "health" }
+func (c *HealthComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
+func (c *HealthComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
 ```
 
-### Versioning and Dirty Tracking
-
-Data entities support versioning for optimistic locking and dirty tracking for efficient persistence:
+### 2. Define Entity Types and Tags
 
 ```go
-// Get version
-version := entity.Version()
+const (
+    EntityTypePlayer ginka_ecs_go.EntityType = iota + 1
+    EntityTypeEnemy
+    EntityTypeNPC
+)
 
-// Mark dirty
-entity.MarkDirty(componentType)
-
-// Get dirty types
-dirtyTypes := entity.DirtyTypes()
-
-// Clear dirty
-entity.ClearDirty(dirtyTypes...)
+type PlayerTag    ginka_ecs_go.Tag
+type MobTag       ginka_ecs_go.Tag
+type PersistentTag ginka_ecs_go.Tag
 ```
 
-### Entity Manager
-
-MapEntityManager provides powerful entity querying capabilities:
+### 3. Create Command Types
 
 ```go
-// Iterate all entities
-err := manager.ForEach(ctx, func(ent T) error {
-    // Process entity
-    return nil
-})
+const (
+    CommandTypeLogin ginka_ecs_go.CommandType = iota + 1
+    CommandTypeMove
+    CommandTypeAttack
+    CommandTypeHeal
+)
 
-// Query by component type
-err := manager.ForEachWithComponent(ctx, componentType, func(ent T) error {
-    // Process entities with this component
-    return nil
-})
+type LoginCommand struct {
+    PlayerID uint64
+    Username string
+}
 
-// Query by multiple component types
-types := []ComponentType{posType, velType}
-err := manager.ForEachWithComponents(ctx, types, func(ent T) error {
-    // Process entities with all specified components
-    return nil
-})
+func (c LoginCommand) Type() ginka_ecs_go.CommandType    { return CommandTypeLogin }
+func (c LoginCommand) EntityId() uint64                   { return c.PlayerID }
 
-// Zero-allocation iteration (requires extension interface)
-if ranger, ok := manager.(ginka_ecs_go.EntityManagerRanger[T]); ok {
-    err := ranger.Range(ctx, func(ent T) error {
-        // Process entity (no allocations)
+type MoveCommand struct {
+    PlayerID uint64
+    X, Y     float64
+}
+
+func (c MoveCommand) Type() ginka_ecs_go.CommandType    { return CommandTypeMove }
+func (c MoveCommand) EntityId() uint64                   { return c.PlayerID }
+```
+
+### 4. Implement Systems
+
+#### Command System (handles player actions)
+
+```go
+type AuthSystem struct{}
+
+func (s *AuthSystem) Name() string { return "auth" }
+
+func (s *AuthSystem) SubscribedCommands() []ginka_ecs_go.CommandType {
+    return []ginka_ecs_go.CommandType{CommandTypeLogin}
+}
+
+func (s *AuthSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
+    login, ok := cmd.(LoginCommand)
+    if !ok {
+        return fmt.Errorf("auth: unexpected command %T", cmd)
+    }
+
+    if _, exists := w.Entities().Get(login.PlayerID); exists {
+        return nil // Player already logged in
+    }
+
+    player, err := w.Entities().Create(ctx, login.PlayerID, login.Username, EntityTypePlayer, PlayerTag("active"))
+    if err != nil {
+        return err
+    }
+
+    if err := player.SetData(NewPositionComponent(0, 0)); err != nil {
+        return err
+    }
+    if err := player.SetData(NewVelocityComponent(0, 0)); err != nil {
+        return err
+    }
+    if err := player.SetData(NewHealthComponent(100, 100)); err != nil {
+        return err
+    }
+
+    return nil
+}
+```
+
+#### Tick System (game loop logic)
+
+```go
+type MovementSystem struct{}
+
+func (s *MovementSystem) Name() string { return "movement" }
+
+func (s *MovementSystem) TickShard(ctx context.Context, w ginka_ecs_go.World, dt time.Duration, shardIdx, shardCount int) error {
+    return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
+        // Filter to only entities in this shard
+        if ginka_ecs_go.ShardIndex(ent.Id(), shardCount) != shardIdx {
+            return nil
+        }
+
+        // Skip disabled entities
+        if !ent.Enabled() {
+            return nil
+        }
+
+        pos, ok := ent.GetData(ComponentTypePosition)
+        if !ok {
+            return nil
+        }
+
+        vel, ok := ent.GetData(ComponentTypeVelocity)
+        if !ok {
+            return nil
+        }
+
+        // Apply velocity
+        posC := pos.(*PositionComponent)
+        velC := vel.(*VelocityComponent)
+
+        posC.X += velC.X * dt.Seconds()
+        posC.Y += velC.Y * dt.Seconds()
+
+        // Mark as dirty for persistence
+        ent.MarkDirty(ComponentTypePosition)
+
         return nil
     })
 }
 ```
 
+### 5. Initialize and Run the World
+
+```go
+func main() {
+    ctx := context.Background()
+
+    // Create world with external tick driver (default)
+    world := ginka_ecs_go.NewCoreWorld("game-world")
+
+    // Or enable internal ticker (60 FPS)
+    // world := ginka_ecs_go.NewCoreWorld("game-world", ginka_ecs_go.WithTickInterval(16*time.Millisecond))
+
+    // Register systems
+    if err := world.Register(&AuthSystem{}, &MovementSystem{}); err != nil {
+        log.Fatal(err)
+    }
+
+    // Start the world
+    if err := world.Run(); err != nil {
+        log.Fatal(err)
+    }
+    defer world.Stop()
+
+    // Submit commands (handled serially per entity)
+    if err := world.Submit(ctx, LoginCommand{PlayerID: 1001, Username: "Player1"}); err != nil {
+        log.Fatal(err)
+    }
+
+    // Tick the world (for external tick driver)
+    if err := world.TickOnce(ctx, 16*time.Millisecond); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+## Detailed Usage
+
+### Entity IDs
+
+Entity IDs must be non-zero. For server applications, use externally assigned IDs (e.g., player ID from authentication). For client-only games, you can generate IDs using a snowflake-style generator or a simple incrementing counter.
+
+```go
+// Invalid - will return ErrInvalidEntityId
+world.Entities().Create(ctx, 0, "test", EntityTypePlayer)
+
+// Valid - use meaningful IDs
+player, err := world.Entities().Create(ctx, 1001, "Player1", EntityTypePlayer)
+```
+
+### Component Management
+
+Components are attached to entities and accessed by type. Each entity can have at most one component per `ComponentType`.
+
+```go
+// Add a component
+player.SetData(NewHealthComponent(100, 100))
+
+// Get a component
+health, ok := player.GetData(ComponentTypeHealth)
+if !ok {
+    // Component not found
+}
+
+// Mutate a component (marks as dirty)
+player.MutateData(ComponentTypeHealth, func(c ginka_ecs_go.DataComponent) error {
+    health := c.(*HealthComponent)
+    health.HP -= damage
+    return nil
+})
+
+// Remove a component
+player.Remove(ComponentTypeHealth)
+```
+
+### Dirty Tracking
+
+`DataEntity` tracks which component types have been modified since last clear. This is useful for efficient persistence.
+
+```go
+// Check which components are dirty
+dirty := player.DirtyTypes()
+for _, t := range dirty {
+    c, _ := player.GetData(t)
+    // Persist c...
+}
+
+// Clear dirty flags after persistence
+player.ClearDirty(dirty...)
+```
+
+### Tags
+
+Tags are string identifiers for categorizing entities and components.
+
+```go
+// Add tags when creating entity
+player, _ := world.Entities().Create(ctx, 1001, "Player1", EntityTypePlayer, PlayerTag("vip"))
+
+// Check tags
+if player.HasTag(PlayerTag("vip")) {
+    // Apply VIP benefits
+}
+
+// Add/remove tags
+player.AddTag(PersistentTag("needs-save"))
+player.RemoveTag(PlayerTag("offline"))
+
+// Get all tags
+tags := player.Tags()
+```
+
+### Enabled State
+
+Entities and components have an enabled flag that controls whether they participate in systems.
+
+```go
+// Disable an entity
+player.SetEnabled(false)
+
+// Disabled entities are still accessible via Get/Has,
+// but your systems should check Enabled() before processing
+
+// Enable an entity
+player.SetEnabled(true)
+```
+
+### Sharded Tick Execution
+
+`CoreWorld` uses 256 shards (configurable) for parallel tick execution. Each shard handles commands and ticks serially, but different shards run concurrently.
+
+```go
+type MyTickSystem struct{}
+
+func (s *MyTickSystem) Name() string { return "my-tick" }
+
+func (s *MyTickSystem) TickShard(ctx context.Context, w ginka_ecs_go.World, dt time.Duration, shardIdx, shardCount int) error {
+    return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
+        // Only process entities assigned to this shard
+        if ginka_ecs_go.ShardIndex(ent.Id(), shardCount) != shardIdx {
+            return nil
+        }
+
+        // Process entity...
+        return nil
+    })
+}
+```
+
+The shard index is computed deterministically using `ShardIndex(entityId, shardCount)`. This ensures the same entity always goes to the same shard across ticks.
+
+### Command Subscribers
+
+Systems can subscribe to specific command types using `CommandSubscriber`:
+
+```go
+type WalletSystem struct{}
+
+func (s *WalletSystem) Name() string { return "wallet" }
+
+func (s *WalletSystem) SubscribedCommands() []ginka_ecs_go.CommandType {
+    return []ginka_ecs_go.CommandType{CommandTypeAddGold, CommandTypeSpendGold}
+}
+
+func (s *WalletSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
+    // Handle wallet commands...
+}
+```
+
+If a system implements `CommandSystem` but not `CommandSubscriber`, it receives all commands.
+
+### Context Cancellation
+
+All operations accept a context for cancellation:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+// Create will return context.DeadlineExceeded if it takes too long
+player, err := world.Entities().Create(ctx, 1001, "Player1", EntityTypePlayer)
+
+// Submit will return context.Canceled if context is cancelled
+if err := world.Submit(ctx, cmd); err != nil {
+    // Handle error
+}
+```
+
+## World Options
+
+`CoreWorld` supports several options:
+
+```go
+// Set tick interval (0 = external tick driver, >0 = internal ticker)
+WithTickInterval(16 * time.Millisecond)
+
+// Set number of shards (must be power of 2, default 256)
+WithShardCount(64)
+
+// Provide custom entity manager
+WithEntityManager(customManager)
+
+// Handle tick errors
+WithTickErrorHandler(func(err error) {
+    log.Printf("tick error: %v", err)
+})
+```
+
+## Persistence Pattern
+
+A common pattern for persistence is a `ShardedTickSystem` that flushes dirty components:
+
+```go
+type PersistenceSystem struct {
+    db Database
+}
+
+func (s *PersistenceSystem) Name() string { return "persistence" }
+
+func (s *PersistenceSystem) TickShard(ctx context.Context, w ginka_ecs_go.World, dt time.Duration, shardIdx, shardCount int) error {
+    return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
+        if ginka_ecs_go.ShardIndex(ent.Id(), shardCount) != shardIdx {
+            return nil
+        }
+
+        for _, t := range ent.DirtyTypes() {
+            c, _ := ent.GetData(t)
+            data, _ := c.Marshal()
+            if err := s.db.Save(ent.Id(), c.PersistKey(), data); err != nil {
+                return err
+            }
+        }
+        ent.ClearDirty()
+
+        return nil
+    })
+}
+```
+
+## Error Handling
+
+The library defines standard errors:
+
+```go
+var (
+    ErrComponentAlreadyExists // Entity already has this component type
+    ErrComponentNotFound      // Entity doesn't have this component type
+    ErrNilComponent           // Nil component provided
+    ErrEntityAlreadyExists    // Entity with this ID already exists
+    ErrEntityNotFound         // Entity with this ID not found
+    ErrInvalidEntityId        // Zero ID provided
+    ErrSystemAlreadyRegistered// Duplicate system name
+    ErrUnhandledCommand       // No system handled the command
+    ErrWorldNotRunning        // Operation requires running world
+    ErrWorldAlreadyRunning    // Operation requires stopped world
+)
+```
+
+## Concurrency Model
+
+- **Submit** is safe for concurrent use from multiple goroutines
+- Commands are serialized per EntityId via sharding
+- **TickOnce** should be called from one goroutine (or synchronized externally)
+- Systems receive commands and tick callbacks serially per shard
+- Within a shard, no two systems will execute concurrently for the same entity
+
+This model ensures deterministic ordering for entity-specific operations while allowing parallel processing across shards.
+
+## Complete Example
+
+See `examples/server_demo/` for a fully functional example demonstrating:
+- Component definition with JSON serialization
+- Command submission (login, add gold, rename)
+- Sharded tick system for persistence
+- Integration with external tick driver
+
 ## Best Practices
 
-1. **Component Design**: Keep components focused on data, systems on logic
-2. **Type Safety**: Use distinct ComponentType values for each component type
-3. **Error Handling**: Always check error returns from Add, SetData, etc.
-4. **Context Usage**: Pass context to operations that may block or iterate
-5. **Tagging**: Use tags for logical grouping and quick filtering
-6. **Factory Pattern**: Use EntityFactory for flexible entity creation
-
-## Project Structure
-
-```
-├── component.go          # Component interfaces
-├── component_core.go     # Reusable component implementation
-├── data_component.go    # Persistence-enabled components
-├── entity.go            # Entity interfaces
-├── entity_core.go       # Reusable entity implementation
-├── entity_manager.go    # Entity lifecycle management
-├── data_entity_core.go  # Data entity with versioning
-├── system.go            # System interfaces
-├── command.go           # Command system
-├── tag.go              # Tagging system
-├── tag_set.go          # Tag implementation
-├── world.go            # World container
-├── errors.go           # Error definitions
-└── extensions.go       # Extension interfaces
-```
-
-## Extension Interfaces
-
-The library provides optional extension interfaces for advanced functionality:
-
-- **ComponentForEacher**: Iterate components without allocation
-- **DirtyTypeForEacher**: Iterate dirty component types without allocation
-- **EntityManagerRanger[T]**: Iterate entities without allocation
-- **ComponentQueryableEntityManager[T]**: Query entities by component constraints
-
-These extensions are optional and supported by specific implementations as needed.
-
-## Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-- Keep interfaces small and focused
-- Add documentation for all exported types and functions
-- Use table-driven tests for comprehensive coverage
-- Follow Go naming conventions
-- Ensure thread-safety for concurrent operations
-
-## License
-
-This project is licensed under the MIT License.
-
-## Performance Considerations
-
-- **Entity Iteration**: Use ForEach with context for safe iteration
-- **Component Lookup**: O(n) linear search - cache frequently accessed components
-- **Tag Filtering**: Use tags for quick entity filtering before component checks
-- **Persistence**: Only persist dirty components to minimize I/O
-- **Generics**: Generics provide type safety but may have slight performance overhead
-- **Extension Interfaces**: Use extension interfaces to avoid allocations and improve performance
+1. **Use typed constants** for ComponentType, EntityType, and CommandType
+2. **Embed ComponentCore** in components to reuse enabled/tag behavior
+3. **Check Enabled()** in tick systems to skip disabled entities
+4. **Use MutateData** for component updates to ensure dirty tracking
+5. **Implement CommandSubscriber** for targeted command handling
+6. **Use context propagation** for cancellable operations
+7. **Call TickOnce** or use WithTickInterval for game loop
+8. **Defer world.Stop()** for graceful shutdown

@@ -2,6 +2,7 @@ package ginka_ecs_go
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -43,13 +44,6 @@ func (m *MapEntityManager[T]) Create(ctx context.Context, id uint64, name string
 		return zero, fmt.Errorf("create entity: factory is nil")
 	}
 
-	m.mu.RLock()
-	_, exists := m.byId[id]
-	m.mu.RUnlock()
-	if exists {
-		return zero, fmt.Errorf("create entity %d: %w", id, ErrEntityAlreadyExists)
-	}
-
 	ent, err := m.factory(id, name, typ, tags...)
 	if err != nil {
 		return zero, err
@@ -62,6 +56,9 @@ func (m *MapEntityManager[T]) Create(ctx context.Context, id uint64, name string
 	}
 
 	if err := m.Add(ctx, ent); err != nil {
+		if errors.Is(err, ErrEntityAlreadyExists) {
+			return zero, fmt.Errorf("create entity %d: %w", id, ErrEntityAlreadyExists)
+		}
 		return zero, err
 	}
 	return ent, nil

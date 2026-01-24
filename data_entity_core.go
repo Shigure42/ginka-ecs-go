@@ -52,7 +52,10 @@ func (e *DataEntityCore) SetData(c DataComponent) error {
 		if _, ok := existing.(DataComponent); !ok {
 			return fmt.Errorf("set data %d: existing component is not a DataComponent", t)
 		}
-		e.Remove(t)
+		// Keep insertion order stable: replace in-place.
+		e.components[t] = c
+		e.MarkDirty(t)
+		return nil
 	}
 	if err := e.Add(c); err != nil {
 		return err
@@ -155,3 +158,4 @@ func (e *DataEntityCore) ForEachDirtyType(fn func(t ComponentType) error) error 
 
 // Must satisfy DataEntity.
 var _ DataEntity = (*DataEntityCore)(nil)
+var _ Entity = (*DataEntityCore)(nil)
