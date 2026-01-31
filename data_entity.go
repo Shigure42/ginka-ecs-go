@@ -16,6 +16,6 @@ type DataEntity interface {
 	// ClearDirty clears the dirty flag from the given types.
 	ClearDirty(types ...ComponentType)
 	// Tx runs fn with an exclusive lock.
-	// The callback must use tx and not call entity methods ( deadlock risk).
+	// The callback must use tx and not call entity methods (deadlock risk).
 	Tx(fn func(tx DataEntityTx) error) error
 }

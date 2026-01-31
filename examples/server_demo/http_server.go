@@ -9,11 +9,14 @@ import (
 )
 
 type Server struct {
-	world ginka_ecs_go.World
+	world   ginka_ecs_go.World
+	auth    *AuthSystem
+	wallet  *WalletSystem
+	profile *ProfileSystem
 }
 
-func NewServer(world ginka_ecs_go.World) *Server {
-	return &Server{world: world}
+func NewServer(world ginka_ecs_go.World, auth *AuthSystem, wallet *WalletSystem, profile *ProfileSystem) *Server {
+	return &Server{world: world, auth: auth, wallet: wallet, profile: profile}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -41,8 +44,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
-	if err := s.world.Submit(r.Context(), ginka_ecs_go.NewAction(LoginCommand{PlayerId: req.PlayerId, Name: req.Name})); err != nil {
-		http.Error(w, fmt.Sprintf("submit login: %v", err), http.StatusBadRequest)
+	if err := s.auth.Login(r.Context(), s.world, LoginRequest{PlayerId: req.PlayerId, Name: req.Name}); err != nil {
+		http.Error(w, fmt.Sprintf("login: %v", err), http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -65,8 +68,8 @@ func (s *Server) handleAddGold(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
-	if err := s.world.Submit(r.Context(), ginka_ecs_go.NewAction(AddGoldCommand{PlayerId: req.PlayerId, Amount: req.Amount})); err != nil {
-		http.Error(w, fmt.Sprintf("submit add gold: %v", err), http.StatusBadRequest)
+	if err := s.wallet.AddGold(r.Context(), s.world, AddGoldRequest{PlayerId: req.PlayerId, Amount: req.Amount}); err != nil {
+		http.Error(w, fmt.Sprintf("add gold: %v", err), http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -89,8 +92,8 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
-	if err := s.world.Submit(r.Context(), ginka_ecs_go.NewAction(RenameCommand{PlayerId: req.PlayerId, Name: req.Name})); err != nil {
-		http.Error(w, fmt.Sprintf("submit rename: %v", err), http.StatusBadRequest)
+	if err := s.profile.Rename(r.Context(), s.world, RenameRequest{PlayerId: req.PlayerId, Name: req.Name}); err != nil {
+		http.Error(w, fmt.Sprintf("rename: %v", err), http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

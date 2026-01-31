@@ -13,11 +13,7 @@ func (s *AuthSystem) Name() string {
 	return "auth"
 }
 
-func (s *AuthSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-	login, err := ginka_ecs_go.AsCommand[LoginCommand](cmd)
-	if err != nil {
-		return err
-	}
+func (s *AuthSystem) Login(ctx context.Context, w ginka_ecs_go.World, login LoginRequest) error {
 	if _, exists := w.Entities().Get(login.PlayerId); exists {
 		return nil
 	}
@@ -40,11 +36,7 @@ func (s *WalletSystem) Name() string {
 	return "wallet"
 }
 
-func (s *WalletSystem) Handle(_ context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-	addGold, err := ginka_ecs_go.AsCommand[AddGoldCommand](cmd)
-	if err != nil {
-		return err
-	}
+func (s *WalletSystem) AddGold(_ context.Context, w ginka_ecs_go.World, addGold AddGoldRequest) error {
 	player, exists := w.Entities().Get(addGold.PlayerId)
 	if !exists {
 		return fmt.Errorf("wallet system: player %d: %w", addGold.PlayerId, ginka_ecs_go.ErrEntityNotFound)
@@ -65,11 +57,7 @@ func (s *ProfileSystem) Name() string {
 	return "profile"
 }
 
-func (s *ProfileSystem) Handle(_ context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-	rename, err := ginka_ecs_go.AsCommand[RenameCommand](cmd)
-	if err != nil {
-		return err
-	}
+func (s *ProfileSystem) Rename(_ context.Context, w ginka_ecs_go.World, rename RenameRequest) error {
 	player, exists := w.Entities().Get(rename.PlayerId)
 	if !exists {
 		return fmt.Errorf("profile system: player %d: %w", rename.PlayerId, ginka_ecs_go.ErrEntityNotFound)

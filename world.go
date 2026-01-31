@@ -1,12 +1,12 @@
 package ginka_ecs_go
 
-import "context"
-
-// World holds entities and runs systems.
+// World holds entities and registered systems.
+// Scheduling and execution are handled by the caller.
 type World interface {
-	// Run starts the world.
+	// Run starts the world and blocks until Stop is called.
+	// Run can only be called once.
 	Run() error
-	// Stop shuts down.
+	// Stop signals Run to exit.
 	Stop() error
 	// Name returns the world name.
 	GetName() string
@@ -21,11 +21,9 @@ type World interface {
 	// EntitiesByName returns a named entity manager if it exists.
 	EntitiesByName(name string) (EntityManager[DataEntity], bool)
 	// Register adds systems to the world.
-	// The first system that handles a command wins.
 	// Returns ErrSystemAlreadyRegistered if a system with the same name exists.
 	Register(systems ...System) error
-	// Submit sends a command to be processed.
-	// Runs synchronously in the caller's goroutine.
-	// Use CommandKindTick for tick commands.
-	Submit(ctx context.Context, cmd Command) error
+	// Systems returns the registered systems in order.
+	// The returned slice is a snapshot.
+	Systems() []System
 }

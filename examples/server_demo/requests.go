@@ -1,16 +1,16 @@
 package main
 
-type LoginCommand struct {
+type LoginRequest struct {
 	PlayerId uint64
 	Name     string
 }
 
-type AddGoldCommand struct {
+type AddGoldRequest struct {
 	PlayerId uint64
 	Amount   int64
 }
 
-type RenameCommand struct {
+type RenameRequest struct {
 	PlayerId uint64
 	Name     string
 }

@@ -17,10 +17,6 @@ var (
 	ErrInvalidEntityId = errors.New("invalid entity id")
 	// ErrSystemAlreadyRegistered indicates a world already has a system registered with the same name.
 	ErrSystemAlreadyRegistered = errors.New("system already registered")
-	// ErrUnhandledCommand indicates no system handled a submitted command or tick event.
-	ErrUnhandledCommand = errors.New("unhandled command")
-	// ErrWorldNotRunning indicates an operation requires the world to be running.
-	ErrWorldNotRunning = errors.New("world not running")
 	// ErrWorldAlreadyRunning indicates an operation requires the world to be stopped.
 	ErrWorldAlreadyRunning = errors.New("world already running")
 )

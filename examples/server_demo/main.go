@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	ginka_ecs_go "github.com/Shigure42/ginka-ecs-go"
 )
@@ -12,14 +11,22 @@ import (
 func main() {
 	ctx := context.Background()
 	world := ginka_ecs_go.NewCoreWorld("demo-world")
-	if err := world.Register(&AuthSystem{}, &ProfileSystem{}, &WalletSystem{}, NewFilePersistenceSystem("tmp/server_demo")); err != nil {
+	authSys := &AuthSystem{}
+	profileSys := &ProfileSystem{}
+	walletSys := &WalletSystem{}
+	persistenceSys := NewFilePersistenceSystem("tmp/server_demo")
+	if err := world.Register(authSys, profileSys, walletSys, persistenceSys); err != nil {
 		log.Fatal(err)
 	}
-	if err := world.Run(); err != nil {
-		log.Fatal(err)
-	}
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- world.Run()
+	}()
 	defer func() {
 		if err := world.Stop(); err != nil {
+			log.Println(err)
+		}
+		if err := <-runDone; err != nil {
 			log.Println(err)
 		}
 	}()
@@ -27,22 +34,22 @@ func main() {
 	playerId := uint64(1001)
 
 	fmt.Println("api: login")
-	if err := world.Submit(ctx, ginka_ecs_go.NewAction(LoginCommand{PlayerId: playerId, Name: "Aki"})); err != nil {
+	if err := authSys.Login(ctx, world, LoginRequest{PlayerId: playerId, Name: "Aki"}); err != nil {
 		log.Fatal(err)
 	}
 
 	fmt.Println("api: add gold +120")
-	if err := world.Submit(ctx, ginka_ecs_go.NewAction(AddGoldCommand{PlayerId: playerId, Amount: 120})); err != nil {
+	if err := walletSys.AddGold(ctx, world, AddGoldRequest{PlayerId: playerId, Amount: 120}); err != nil {
 		log.Fatal(err)
 	}
 
 	fmt.Println("api: rename to AkiHero")
-	if err := world.Submit(ctx, ginka_ecs_go.NewAction(RenameCommand{PlayerId: playerId, Name: "AkiHero"})); err != nil {
+	if err := profileSys.Rename(ctx, world, RenameRequest{PlayerId: playerId, Name: "AkiHero"}); err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("tick: flush dirty components")
-	if err := world.Submit(ctx, ginka_ecs_go.NewTick(time.Second)); err != nil {
+	fmt.Println("flush: dirty components")
+	if err := persistenceSys.Flush(ctx, world); err != nil {
 		log.Fatal(err)
 	}
 }

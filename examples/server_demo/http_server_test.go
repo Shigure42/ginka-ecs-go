@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	ginka_ecs_go "github.com/Shigure42/ginka-ecs-go"
 )
@@ -17,19 +16,24 @@ import (
 func TestHTTPServerFlow(t *testing.T) {
 	baseDir := t.TempDir()
 	world := ginka_ecs_go.NewCoreWorld("http-world")
-	if err := world.Register(&AuthSystem{}, &ProfileSystem{}, &WalletSystem{}, NewFilePersistenceSystem(baseDir)); err != nil {
+	authSys := &AuthSystem{}
+	profileSys := &ProfileSystem{}
+	walletSys := &WalletSystem{}
+	persistenceSys := NewFilePersistenceSystem(baseDir)
+	if err := world.Register(authSys, profileSys, walletSys, persistenceSys); err != nil {
 		t.Fatalf("register systems: %v", err)
 	}
-	if err := world.Run(); err != nil {
-		t.Fatalf("run world: %v", err)
-	}
+	runDone := startWorld(t, world)
 	defer func() {
 		if err := world.Stop(); err != nil {
 			t.Fatalf("stop world: %v", err)
 		}
+		if err := <-runDone; err != nil {
+			t.Fatalf("run world: %v", err)
+		}
 	}()
 
-	server := NewServer(world)
+	server := NewServer(world, authSys, walletSys, profileSys)
 	httpServer := httptest.NewServer(server.Routes())
 	defer httpServer.Close()
 
@@ -86,8 +90,8 @@ func TestHTTPServerFlow(t *testing.T) {
 	checkPlayer(1001, "AkiHero", 120)
 	checkPlayer(2002, "Mio", 45)
 
-	if err := world.Submit(context.Background(), ginka_ecs_go.NewTick(time.Second)); err != nil {
-		t.Fatalf("tick: %v", err)
+	if err := persistenceSys.Flush(context.Background(), world); err != nil {
+		t.Fatalf("flush: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(baseDir, "1001", "profile.json")); err != nil {
 		t.Fatalf("expected profile persisted: %v", err)

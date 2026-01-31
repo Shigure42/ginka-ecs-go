@@ -22,11 +22,7 @@ func (s *FilePersistenceSystem) Name() string {
 	return "file-persistence"
 }
 
-func (s *FilePersistenceSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-	_, err := ginka_ecs_go.TickEvent(cmd)
-	if err != nil {
-		return err
-	}
+func (s *FilePersistenceSystem) Flush(ctx context.Context, w ginka_ecs_go.World) error {
 	if s.baseDir == "" {
 		return fmt.Errorf("file persistence: baseDir is empty")
 	}

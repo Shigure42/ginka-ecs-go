@@ -7,8 +7,7 @@ ginka-ecs-go is a lightweight, in-process Entity-Component-System (ECS) library 
 
 - **Entity management**: Create, retrieve, and delete entities with stable IDs
 - **Component composition**: Attach data-bearing components to entities
-- **System execution**: Define business logic via systems that process entities
-- **Command routing**: Submit commands (including ticks) that are executed synchronously by systems
+- **System registry**: Register systems by name (execution is caller-owned)
 - **Persistence**: Dirty tracking and serialization for data components
 
 ## Core Concepts
@@ -62,37 +61,19 @@ type DataComponent interface {
 
 ### System
 
-Systems contain the business logic that processes entities. A system is identified by a unique name and handles commands (including tick commands):
+Systems contain the business logic that processes entities. The ECS library only
+requires a system name; execution is up to your scheduler/runner.
 
 ```go
 type System interface {
     Name() string
-    Handle(ctx context.Context, w World, cmd Command) error
 }
-
-Systems that do not handle a command should return `ErrUnhandledCommand` so the next
-system can try. The first system that handles a command stops dispatch.
-
-type CommandKind int
-
-const (
-    CommandKindAction CommandKind = iota + 1
-    CommandKindTick
-)
-
-type Command struct {
-    Kind    CommandKind
-    Payload any
-    Dt      time.Duration
-}
-
-Use `NewAction` and `NewTick` helpers to create commands.
-Use `CommandKindTick` for tick execution.
 ```
 
 ### World
 
-The world is the central container that manages all entities, components, and systems. It handles command routing and system execution.
+The world is the central container that manages all entities, components, and systems.
+Scheduling and execution are handled by the caller.
 
 ```go
 type World interface {
@@ -105,11 +86,11 @@ type World interface {
     Entities() EntityManager[DataEntity]
     EntitiesByName(name string) (EntityManager[DataEntity], bool)
     Register(systems ...System) error
-    Submit(ctx context.Context, cmd Command) error
+    Systems() []System
 }
 ```
 
-`CoreWorld` is the primary implementation, providing synchronous command execution in registration order.
+`CoreWorld` is the primary implementation, providing storage and system registration.
 
 ## Quick Start Guide
 
@@ -198,17 +179,16 @@ type MobTag       ginka_ecs_go.Tag
 type PersistentTag ginka_ecs_go.Tag
 ```
 
-### 3. Create Command Types
+### 3. Define Request Types
 
-Commands are plain payload structs. They do not implement any interface; they are
-wrapped into `Command` via `NewAction` or `NewTick` when submitted.
+Requests are plain structs that your systems consume.
 
 ```go
-type LoginCommand struct {
+type LoginRequest struct {
     PlayerID uint64
     Username string
 }
-type MoveCommand struct {
+type MoveRequest struct {
     PlayerID uint64
     X, Y     float64
 }
@@ -216,24 +196,17 @@ type MoveCommand struct {
 
 ### 4. Implement Systems
 
-#### Command System (handles player actions)
-
 ```go
 type AuthSystem struct{}
 
 func (s *AuthSystem) Name() string { return "auth" }
 
-func (s *AuthSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-    login, err := ginka_ecs_go.AsCommand[LoginCommand](cmd)
-    if err != nil {
-        return err
+func (s *AuthSystem) Login(ctx context.Context, w ginka_ecs_go.World, req LoginRequest) error {
+    if _, exists := w.Entities().Get(req.PlayerID); exists {
+        return nil
     }
 
-    if _, exists := w.Entities().Get(login.PlayerID); exists {
-        return nil // Player already logged in
-    }
-
-    player, err := w.Entities().Create(ctx, login.PlayerID, login.Username, EntityTypePlayer, PlayerTag("active"))
+    player, err := w.Entities().Create(ctx, req.PlayerID, req.Username, EntityTypePlayer, PlayerTag("active"))
     if err != nil {
         return err
     }
@@ -250,22 +223,13 @@ func (s *AuthSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka
 
     return nil
 }
-```
 
-#### Tick System (game loop logic)
-
-```go
 type MovementSystem struct{}
 
 func (s *MovementSystem) Name() string { return "movement" }
 
-func (s *MovementSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-    dt, err := ginka_ecs_go.TickEvent(cmd)
-    if err != nil {
-        return err
-    }
+func (s *MovementSystem) Tick(ctx context.Context, w ginka_ecs_go.World, dt time.Duration) error {
     return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
-        // Skip disabled entities
         if !ent.Enabled() {
             return nil
         }
@@ -280,10 +244,7 @@ func (s *MovementSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd g
             return nil
         }
 
-        // Apply velocity
         velC := vel.(*VelocityComponent)
-
-        // Update position and mark dirty/version via helper.
         if err := ginka_ecs_go.UpdateData(ent, ComponentTypePosition, func(c ginka_ecs_go.DataComponent) error {
             posC := c.(*PositionComponent)
             posC.X += velC.X * dt.Seconds()
@@ -304,27 +265,30 @@ func (s *MovementSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd g
 func main() {
     ctx := context.Background()
 
-    // Create world with external tick driver (default)
     world := ginka_ecs_go.NewCoreWorld("game-world")
+    auth := &AuthSystem{}
+    movement := &MovementSystem{}
 
-    // Register systems
-    if err := world.Register(&AuthSystem{}, &MovementSystem{}); err != nil {
+    if err := world.Register(auth, movement); err != nil {
         log.Fatal(err)
     }
 
-    // Start the world
-    if err := world.Run(); err != nil {
+    runDone := make(chan error, 1)
+    go func() {
+        runDone <- world.Run()
+    }()
+    defer func() {
+        _ = world.Stop()
+        if err := <-runDone; err != nil {
+            log.Println(err)
+        }
+    }()
+
+    if err := auth.Login(ctx, world, LoginRequest{PlayerID: 1001, Username: "Player1"}); err != nil {
         log.Fatal(err)
     }
-    defer world.Stop()
 
-    // Submit commands (handled synchronously by systems)
-    if err := world.Submit(ctx, ginka_ecs_go.NewAction(LoginCommand{PlayerID: 1001, Username: "Player1"})); err != nil {
-        log.Fatal(err)
-    }
-
-    // Tick the world (for external tick driver)
-    if err := world.Submit(ctx, ginka_ecs_go.NewTick(16*time.Millisecond)); err != nil {
+    if err := movement.Tick(ctx, world, 16*time.Millisecond); err != nil {
         log.Fatal(err)
     }
 }
@@ -421,35 +385,10 @@ player.SetEnabled(false)
 player.SetEnabled(true)
 ```
 
-### Tick Handling
+### Scheduling
 
-Tick commands are submitted via `Submit` and handled like any other command.
-
-```go
-if err := world.Submit(ctx, ginka_ecs_go.NewTick(16*time.Millisecond)); err != nil {
-    log.Fatal(err)
-}
-```
-
-### Command Handling
-
-All systems receive all commands in registration order. Systems that do not handle a
-command should return `ErrUnhandledCommand` so the next system can try.
-
-```go
-if err := world.Submit(ctx, ginka_ecs_go.NewAction(LoginCommand{PlayerID: 1001, Username: "Player1"})); err != nil {
-    log.Fatal(err)
-}
-
-func (s *AuthSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-    login, err := ginka_ecs_go.AsCommand[LoginCommand](cmd)
-    if err != nil {
-        return err
-    }
-    // handle login...
-    return nil
-}
-```
+This library does not provide a scheduler. Run your systems from your own loop or
+runner, and pass the world into your system methods.
 
 ### Context Cancellation
 
@@ -462,10 +401,7 @@ defer cancel()
 // Create will return context.DeadlineExceeded if it takes too long
 player, err := world.Entities().Create(ctx, 1001, "Player1", EntityTypePlayer)
 
-// Submit will return context.Canceled if context is cancelled
-if err := world.Submit(ctx, cmd); err != nil {
-    // Handle error
-}
+// Entity manager operations will return context.Canceled if the context is cancelled
 ```
 
 ## World Options
@@ -502,7 +438,8 @@ npcs, _ := world.EntitiesByName("npcs")
 
 ## Persistence Pattern
 
-A common pattern for persistence is a tick-handling system that flushes dirty components:
+A common pattern for persistence is a system method that flushes dirty components.
+Call it from your scheduler or service loop.
 
 ```go
 type PersistenceSystem struct {
@@ -511,10 +448,7 @@ type PersistenceSystem struct {
 
 func (s *PersistenceSystem) Name() string { return "persistence" }
 
-func (s *PersistenceSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-    if _, err := ginka_ecs_go.TickEvent(cmd); err != nil {
-        return err
-    }
+func (s *PersistenceSystem) Flush(ctx context.Context, w ginka_ecs_go.World) error {
     return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
         for _, c := range ent.DirtyDataComponents() {
             data, _ := c.Marshal()
@@ -542,35 +476,27 @@ var (
     ErrEntityNotFound         // Entity with this ID not found
     ErrInvalidEntityId        // Zero ID provided
     ErrSystemAlreadyRegistered// Duplicate system name
-    ErrUnhandledCommand       // No system handled the command or tick event
-    ErrWorldNotRunning        // Operation requires running world
     ErrWorldAlreadyRunning    // Operation requires stopped world
 )
 ```
 
 ## Concurrency Model
 
-- **Submit** is safe for concurrent use from multiple goroutines and executes synchronously in the caller goroutine
 - Concurrency safety depends on your systems and data access patterns
-
-Ordering guarantees are provided by your external command queue when needed.
+- Entity manager methods are safe for concurrent access
 
 ## Complete Example
 
 See `examples/server_demo/` for a fully functional example demonstrating:
 - Component definition with JSON serialization
-- Command submission (login, add gold, rename)
-- Tick command handling for persistence
-- Integration with external tick driver
+- Direct system calls (login, add gold, rename)
+- Persistence flushing via a system method
 
 ## Best Practices
 
 1. **Use typed constants** for ComponentType and EntityType
 2. **Embed DataComponentCore** in data components to reuse enabled/tag behavior and version tracking
-3. **Use NewAction/NewTick** to build commands
-4. **Use AsCommand/TickEvent** helpers to parse commands cleanly
-5. **Use UpdateData** (or Tx + SetData) for component updates to ensure dirty tracking
-6. **Return ErrUnhandledCommand** when a system does not handle a command
-7. **Use context propagation** for cancellable operations
-8. **Submit CommandKindTick** from your external scheduler for the game loop
-9. **Defer world.Stop()** for graceful shutdown
+3. **Use UpdateData** (or Tx + SetData) for component updates to ensure dirty tracking
+4. **Use context propagation** for cancellable operations
+5. **Keep scheduling in your application layer**
+6. **Defer world.Stop()** for graceful shutdown

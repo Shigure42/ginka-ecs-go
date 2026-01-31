@@ -15,28 +15,33 @@ func TestServerDemoFlow(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
 	world := ginka_ecs_go.NewCoreWorld("test-world")
-	if err := world.Register(&AuthSystem{}, &ProfileSystem{}, &WalletSystem{}, NewFilePersistenceSystem(baseDir)); err != nil {
+	authSys := &AuthSystem{}
+	profileSys := &ProfileSystem{}
+	walletSys := &WalletSystem{}
+	persistenceSys := NewFilePersistenceSystem(baseDir)
+	if err := world.Register(authSys, profileSys, walletSys, persistenceSys); err != nil {
 		t.Fatalf("register systems: %v", err)
 	}
-	if err := world.Run(); err != nil {
-		t.Fatalf("run world: %v", err)
-	}
+	runDone := startWorld(t, world)
 	defer func() {
 		if err := world.Stop(); err != nil {
 			t.Fatalf("stop world: %v", err)
+		}
+		if err := <-runDone; err != nil {
+			t.Fatalf("run world: %v", err)
 		}
 	}()
 
 	playerId := uint64(1001)
 
-	if err := world.Submit(ctx, ginka_ecs_go.NewAction(LoginCommand{PlayerId: playerId, Name: "Aki"})); err != nil {
-		t.Fatalf("submit login: %v", err)
+	if err := authSys.Login(ctx, world, LoginRequest{PlayerId: playerId, Name: "Aki"}); err != nil {
+		t.Fatalf("login: %v", err)
 	}
-	if err := world.Submit(ctx, ginka_ecs_go.NewAction(AddGoldCommand{PlayerId: playerId, Amount: 120})); err != nil {
-		t.Fatalf("submit add gold: %v", err)
+	if err := walletSys.AddGold(ctx, world, AddGoldRequest{PlayerId: playerId, Amount: 120}); err != nil {
+		t.Fatalf("add gold: %v", err)
 	}
-	if err := world.Submit(ctx, ginka_ecs_go.NewAction(RenameCommand{PlayerId: playerId, Name: "AkiHero"})); err != nil {
-		t.Fatalf("submit rename: %v", err)
+	if err := profileSys.Rename(ctx, world, RenameRequest{PlayerId: playerId, Name: "AkiHero"}); err != nil {
+		t.Fatalf("rename: %v", err)
 	}
 
 	entity, ok := world.Entities().Get(playerId)
@@ -66,8 +71,8 @@ func TestServerDemoFlow(t *testing.T) {
 		t.Fatalf("wallet gold = %d", wallet.Gold)
 	}
 
-	if err := world.Submit(ctx, ginka_ecs_go.NewTick(time.Second)); err != nil {
-		t.Fatalf("tick: %v", err)
+	if err := persistenceSys.Flush(ctx, world); err != nil {
+		t.Fatalf("flush: %v", err)
 	}
 	if len(entity.DirtyTypes()) != 0 {
 		t.Fatalf("expected dirty types cleared")
@@ -101,5 +106,32 @@ func TestServerDemoFlow(t *testing.T) {
 	}
 	if walletDisk.Gold != 120 {
 		t.Fatalf("wallet disk gold = %d", walletDisk.Gold)
+	}
+}
+
+func startWorld(t *testing.T, world ginka_ecs_go.World) chan error {
+	t.Helper()
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- world.Run()
+	}()
+	waitForRunning(t, world)
+	return runDone
+}
+
+func waitForRunning(t *testing.T, world ginka_ecs_go.World) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		if world.IsRunning() {
+			return
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("world did not start")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
 	}
 }

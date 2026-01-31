@@ -1,11 +1,8 @@
 package ginka_ecs_go
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 )
 
 type WorldOption func(*CoreWorld)
@@ -15,7 +12,6 @@ const defaultEntityManagerName = "default"
 func WithEntityManager(m EntityManager[DataEntity]) WorldOption {
 	return func(w *CoreWorld) {
 		if m != nil {
-			w.entities = m
 			w.setEntityManagerLocked(defaultEntityManagerName, m)
 		}
 	}
@@ -27,26 +23,24 @@ func WithEntityManagerNamed(name string, m EntityManager[DataEntity]) WorldOptio
 			return
 		}
 		if name == defaultEntityManagerName {
-			w.entities = m
+			w.setEntityManagerLocked(defaultEntityManagerName, m)
+			return
 		}
 		w.setEntityManagerLocked(name, m)
 	}
 }
 
 // CoreWorld is a simple in-process World.
-// Submit is safe to call from multiple goroutines.
 type CoreWorld struct {
 	name string
 
 	mu         sync.Mutex
 	running    bool
+	started    bool
 	stopWeight int64
-	stopping   atomic.Bool
-	refs       atomic.Int64
-	refsMu     sync.Mutex
-	refsCond   *sync.Cond
-
-	entities EntityManager[DataEntity]
+	stopOnce   sync.Once
+	stopChan   chan struct{}
+	stopAwait  chan struct{}
 
 	entityManagers sync.Map
 
@@ -59,51 +53,62 @@ type CoreWorld struct {
 // If no EntityManager is provided, it creates a MapEntityManager with DataEntityCore.
 func NewCoreWorld(name string, opts ...WorldOption) *CoreWorld {
 	w := &CoreWorld{
-		name: name,
+		name:      name,
+		stopChan:  make(chan struct{}, 1),
+		stopAwait: make(chan struct{}, 1),
 	}
-	w.refsCond = sync.NewCond(&w.refsMu)
 	for _, opt := range opts {
 		if opt != nil {
 			opt(w)
 		}
 	}
-	if w.entities == nil {
-		w.entities = NewEntityManager(func(id uint64, entityName string, typ EntityType, tags ...Tag) (DataEntity, error) {
+	if _, ok := w.entityManagers.Load(defaultEntityManagerName); !ok {
+		defaultManager := NewEntityManager(func(id uint64, entityName string, typ EntityType, tags ...Tag) (DataEntity, error) {
 			return NewDataEntityCore(id, entityName, typ, tags...), nil
 		}, defaultEntityShardCount)
-		w.setEntityManagerLocked(defaultEntityManagerName, w.entities)
-	} else if _, ok := w.entityManagers.Load(defaultEntityManagerName); !ok {
-		w.setEntityManagerLocked(defaultEntityManagerName, w.entities)
+		w.setEntityManagerLocked(defaultEntityManagerName, defaultManager)
 	}
 	return w
 }
 
 func (w *CoreWorld) Run() error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.running {
+	if w.running || w.started {
+		w.mu.Unlock()
 		return ErrWorldAlreadyRunning
 	}
-	w.stopping.Store(false)
 	w.running = true
+	w.started = true
+	w.mu.Unlock()
+
+	<-w.stopChan
+
+	w.mu.Lock()
+	w.running = false
+	w.mu.Unlock()
+
+	select {
+	case w.stopAwait <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
 func (w *CoreWorld) Stop() error {
 	w.mu.Lock()
-	if !w.running {
-		w.mu.Unlock()
+	started := w.started
+	w.mu.Unlock()
+	if !started {
 		return nil
 	}
-	w.running = false
-	w.stopping.Store(true)
-	w.mu.Unlock()
 
-	w.refsMu.Lock()
-	for w.refs.Load() != 0 {
-		w.refsCond.Wait()
-	}
-	w.refsMu.Unlock()
+	w.stopOnce.Do(func() {
+		select {
+		case w.stopChan <- struct{}{}:
+		default:
+		}
+	})
+	<-w.stopAwait
 	return nil
 }
 
@@ -130,7 +135,13 @@ func (w *CoreWorld) SetStopWeight(weight int64) {
 }
 
 func (w *CoreWorld) Entities() EntityManager[DataEntity] {
-	return w.entities
+	if m, ok := w.entityManagers.Load(defaultEntityManagerName); ok {
+		manager, ok := m.(EntityManager[DataEntity])
+		if ok {
+			return manager
+		}
+	}
+	return nil
 }
 
 func (w *CoreWorld) EntitiesByName(name string) (EntityManager[DataEntity], bool) {
@@ -164,46 +175,15 @@ func (w *CoreWorld) Register(systems ...System) error {
 	return nil
 }
 
-func (w *CoreWorld) Submit(ctx context.Context, cmd Command) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if cmd.Kind == 0 {
-		return fmt.Errorf("submit command: nil")
-	}
-
+func (w *CoreWorld) Systems() []System {
 	w.mu.Lock()
-	running := w.running
-	w.mu.Unlock()
-	if !running {
-		return ErrWorldNotRunning
+	defer w.mu.Unlock()
+	if len(w.systems) == 0 {
+		return nil
 	}
-	if !w.tryAcquire() {
-		return ErrWorldNotRunning
-	}
-	defer w.release()
-	return dispatchCommand(ctx, w, cmd)
-}
-
-func (w *CoreWorld) tryAcquire() bool {
-	if w.stopping.Load() {
-		return false
-	}
-	w.refs.Add(1)
-	if w.stopping.Load() {
-		w.release()
-		return false
-	}
-	return true
-}
-
-func (w *CoreWorld) release() {
-	if w.refs.Add(-1) != 0 {
-		return
-	}
-	w.refsMu.Lock()
-	w.refsCond.Broadcast()
-	w.refsMu.Unlock()
+	out := make([]System, len(w.systems))
+	copy(out, w.systems)
+	return out
 }
 
 func (w *CoreWorld) setEntityManagerLocked(name string, m EntityManager[DataEntity]) {
@@ -211,27 +191,6 @@ func (w *CoreWorld) setEntityManagerLocked(name string, m EntityManager[DataEnti
 		return
 	}
 	w.entityManagers.Store(name, m)
-}
-
-func dispatchCommand(ctx context.Context, w *CoreWorld, cmd Command) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	systems := w.systems
-	for _, sys := range systems {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		err := sys.Handle(ctx, w, cmd)
-		if err == nil {
-			return nil
-		}
-		if errors.Is(err, ErrUnhandledCommand) {
-			continue
-		}
-		return err
-	}
-	return ErrUnhandledCommand
 }
 
 var _ World = (*CoreWorld)(nil)
