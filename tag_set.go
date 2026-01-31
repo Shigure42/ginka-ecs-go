@@ -1,8 +1,7 @@
 package ginka_ecs_go
 
-// TagSet is a reusable tag store that implements Taggable.
-//
-// Tags are stored internally and never exposed directly.
+// TagSet is a simple Taggable implementation.
+// Internal storage, never exposed directly.
 type TagSet struct {
 	tags []Tag
 }
@@ -49,8 +48,7 @@ func (t *TagSet) ClearTags() {
 }
 
 // SetTags replaces all tags with the provided set.
-//
-// Duplicate tags are removed, keeping the first occurrence.
+// Duplicates are removed, keeping the first occurrence.
 func (t *TagSet) SetTags(tags ...Tag) {
 	if len(tags) == 0 {
 		t.tags = nil

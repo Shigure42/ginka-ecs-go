@@ -230,9 +230,7 @@ func (m *MapEntityManager[T]) shard(id uint64) *entityShard[T] {
 	return &m.shards[idx]
 }
 
-// hashEntityId mixes an entity id for shard routing.
-//
-// This is intentionally cheap; it does not need to be cryptographically strong.
+// hashEntityId mixes an entity id for shard routing (cheap, non-cryptographic).
 func hashEntityId(id uint64) uint64 {
 	// A splitmix64-style mix.
 	x := id + 0x9e3779b97f4a7c15

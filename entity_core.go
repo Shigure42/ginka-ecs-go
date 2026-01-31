@@ -5,10 +5,8 @@ import (
 	"sync"
 )
 
-// EntityCore is a reusable Entity implementation.
-//
-// It provides Enabled/tag behavior and enforces at most one Component per
-// ComponentType.
+// EntityCore is a basic Entity implementation with enabled flag and tags.
+// It stores one component per ComponentType.
 type EntityCore struct {
 	EnabledFlag
 	TagSet
@@ -100,8 +98,7 @@ func (e *EntityCore) ClearTags() {
 }
 
 // SetTags replaces all tags with the provided set.
-//
-// Duplicate tags are removed, keeping the first occurrence.
+// Duplicates are removed, keeping the first occurrence.
 func (e *EntityCore) SetTags(tags ...Tag) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

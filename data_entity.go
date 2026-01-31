@@ -1,25 +1,21 @@
 package ginka_ecs_go
 
-// DataEntity extends Entity with data management and versioning capabilities.
-// It provides dirty tracking for efficient persistence operations.
+// DataEntity is an Entity with data management and versioning.
+// It tracks dirty components for efficient persistence.
 type DataEntity interface {
 	Entity
 
-	// GetData retrieves a data component by type.
+	// GetData fetches a data component by type.
 	GetData(t ComponentType) (DataComponent, bool)
-	// SetData attaches or replaces a data component.
-	//
-	// Implementations should mark the component type as dirty.
+	// SetData attaches or replaces a data component and marks it dirty.
 	SetData(c DataComponent) error
-	// DirtyTypes returns a copy of dirty component types.
+	// DirtyTypes returns the component types that have been modified.
 	DirtyTypes() []ComponentType
-	// DirtyDataComponents returns a copy of dirty data components in mark order.
+	// DirtyDataComponents returns the dirty components in mark order.
 	DirtyDataComponents() []DataComponent
-	// ClearDirty removes the dirty flag from the specified component types.
+	// ClearDirty clears the dirty flag from the given types.
 	ClearDirty(types ...ComponentType)
-	// Tx executes fn with an exclusive lock for consistent updates.
-	//
-	// The callback must use the provided tx and must not call methods on the
-	// original entity to avoid deadlocks.
+	// Tx runs fn with an exclusive lock.
+	// The callback must use tx and not call entity methods ( deadlock risk).
 	Tx(fn func(tx DataEntityTx) error) error
 }

@@ -1,9 +1,7 @@
 package ginka_ecs_go
 
-// ComponentCore is a reusable Component implementation.
-//
-// Embed this into concrete components to reuse Enabled/tag behavior and provide
-// a stored ComponentType.
+// ComponentCore is a basic Component implementation.
+// Embed this to get Enabled/tag behavior and a stored ComponentType.
 type ComponentCore struct {
 	EnabledFlag
 	TagSet

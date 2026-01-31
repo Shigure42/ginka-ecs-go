@@ -2,9 +2,8 @@ package ginka_ecs_go
 
 import "fmt"
 
-// UpdateData loads an existing data component, applies fn, and stores it back.
-//
-// It uses Tx to ensure consistent updates and to bump component version.
+// UpdateData loads a data component, applies fn, and stores it back.
+// Uses Tx for consistent updates and bumps the component version.
 func UpdateData(ent DataEntity, t ComponentType, fn func(c DataComponent) error) error {
 	if isNil(ent) {
 		return fmt.Errorf("update data %d: nil entity", t)

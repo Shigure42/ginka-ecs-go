@@ -4,14 +4,9 @@ import (
 	"fmt"
 )
 
-// DataEntityCore is a reusable DataEntity implementation.
-//
-// It is storage-agnostic and only tracks:
-// - DataComponent attachment/mutation
-// - Dirty component types
-//
-// Persistence (loading/flushing/component version bumps) is expected to be implemented by
-// the concrete World or an adapter layer.
+// DataEntityCore is a basic DataEntity implementation.
+// It tracks DataComponent attachment, mutation, and dirty state.
+// Persistence is implemented elsewhere (World or adapter layer).
 type DataEntityCore struct {
 	*EntityCore
 	dirty      map[ComponentType]struct{}
@@ -52,8 +47,7 @@ func (e *DataEntityCore) SetData(c DataComponent) error {
 }
 
 // LoadData attaches a data component without bumping version or marking dirty.
-//
-// This is intended for hydration from persistence.
+// Used when loading from persistence.
 func (e *DataEntityCore) LoadData(c DataComponent) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

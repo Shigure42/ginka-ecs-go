@@ -1,14 +1,11 @@
 package ginka_ecs_go
 
-// Activatable indicates whether an entity/component should participate in systems.
-//
-// Implementations should treat Enabled as an in-memory runtime flag. Disabled
-// entities/components are still expected to be accessible via the APIs (e.g.
-// Get/Has). The concrete World implementation defines how Enabled affects
-// command/tick execution and persistence.
+// Activatable indicates whether an entity/component should be processed by systems.
+// Enabled is a runtime flag. Disabled entities are still accessible via Get/Has.
+// The World implementation decides how Enabled affects execution and persistence.
 type Activatable interface {
-	// Enabled returns whether this component is currently active.
+	// Enabled reports whether this is active.
 	Enabled() bool
-	// SetEnabled enables or disables this component.
+	// SetEnabled turns the entity/component on or off.
 	SetEnabled(bool)
 }

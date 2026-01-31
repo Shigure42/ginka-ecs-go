@@ -3,49 +3,44 @@ package ginka_ecs_go
 import "fmt"
 
 // DataEntityTx exposes entity operations for use within DataEntity.Tx.
-//
-// Methods on this interface assume the entity lock is already held.
+// The entity lock is already held when these methods are called.
 type DataEntityTx interface {
 	Activatable
 	Taggable
 
-	// Id is the stable identifier of the entity (e.g. player id).
+	// Id is the entity's stable identifier.
 	Id() uint64
-	// Name returns the human-readable name of the entity.
+	// Name is the human-readable label.
 	Name() string
-	// Type returns the category type of the entity.
+	// Type categorizes the entity.
 	Type() EntityType
 
-	// Has checks if the entity has a component of the given type.
+	// Has reports whether the entity has a component of type t.
 	Has(t ComponentType) bool
-	// Get retrieves a component by type, returning (nil, false) if not found.
+	// Get returns the component of type t, or (nil, false) if not present.
 	Get(t ComponentType) (Component, bool)
-	// MustGet retrieves a component by type, panicking if not found.
-	//
-	// The panic value should wrap ErrComponentNotFound.
+	// MustGet returns the component of type t, panicking if missing.
 	MustGet(t ComponentType) Component
 
-	// Add attaches c to the entity.
-	//
-	// If a component with the same ComponentType already exists, implementations
-	// should return ErrComponentAlreadyExists (possibly wrapped).
+	// Add attaches component c to the entity.
+	// Returns ErrComponentAlreadyExists if a component of the same type exists.
 	Add(c Component) error
-	// RemoveComponent detaches the component for t and returns whether it existed.
+	// RemoveComponent detaches the component of type t.
+	// Returns true if a component was removed.
 	RemoveComponent(t ComponentType) bool
-	// RemoveComponents detaches multiple components and returns the count of removed.
+	// RemoveComponents detaches multiple components.
+	// Returns the count of components actually removed.
 	RemoveComponents(types []ComponentType) int
-	// AllComponents returns a copy of components in stable insertion order.
+	// AllComponents returns all attached components in insertion order.
 	AllComponents() []Component
 
-	// GetData retrieves a data component by type.
+	// GetData fetches a data component by type.
 	GetData(t ComponentType) (DataComponent, bool)
-	// SetData attaches or replaces a data component.
-	//
-	// Implementations should mark the component type as dirty.
+	// SetData attaches or replaces a data component and marks it dirty.
 	SetData(c DataComponent) error
-	// DirtyTypes returns a copy of dirty component types.
+	// DirtyTypes returns the component types that have been modified.
 	DirtyTypes() []ComponentType
-	// ClearDirty removes the dirty flag from the specified component types.
+	// ClearDirty clears the dirty flag from the given types.
 	ClearDirty(types ...ComponentType)
 }
 

@@ -1,8 +1,7 @@
 package ginka_ecs_go
 
-// EnabledFlag is a reusable Activatable implementation.
-//
-// The zero value is enabled.
+// EnabledFlag is a basic Activatable implementation.
+// Zero value is enabled.
 type EnabledFlag struct {
 	disabled bool
 }

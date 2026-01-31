@@ -1,17 +1,13 @@
 package ginka_ecs_go
 
-// ComponentType uniquely identifies the type of a Component.
+// ComponentType is just an int to identify component types.
 type ComponentType int
 
-// Component is a piece of state attached to an Entity.
-//
-// A Component is identified by ComponentType. Implementations are expected to be
-// safe for in-process use and should avoid exposing mutable internal state
-// through returned slices.
+// Component is attached to an Entity and carries data.
 type Component interface {
 	Activatable
 	Taggable
 
-	// ComponentType returns the unique type identifier for this component.
+	// ComponentType identifies this component's type.
 	ComponentType() ComponentType
 }

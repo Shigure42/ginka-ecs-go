@@ -1,9 +1,7 @@
 package ginka_ecs_go
 
-// DataComponentCore is a reusable DataComponent implementation.
-//
-// Embed this into concrete data components to reuse Enabled/tag behavior and
-// component version tracking.
+// DataComponentCore is a basic DataComponent implementation.
+// Embed this to get Enabled/tag behavior and component version tracking.
 type DataComponentCore struct {
 	ComponentCore
 	VersionValue uint64 `json:"version"`

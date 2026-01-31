@@ -33,10 +33,8 @@ func WithEntityManagerNamed(name string, m EntityManager[DataEntity]) WorldOptio
 	}
 }
 
-// CoreWorld is a simple in-process World implementation.
-//
-// Concurrency model:
-//   - Submit is safe for concurrent use.
+// CoreWorld is a simple in-process World.
+// Submit is safe to call from multiple goroutines.
 type CoreWorld struct {
 	name string
 
@@ -57,9 +55,8 @@ type CoreWorld struct {
 	systems []System
 }
 
-// NewCoreWorld creates a new in-process world.
-//
-// If no EntityManager is provided, a MapEntityManager is used with DataEntityCore.
+// NewCoreWorld creates a new world.
+// If no EntityManager is provided, it creates a MapEntityManager with DataEntityCore.
 func NewCoreWorld(name string, opts ...WorldOption) *CoreWorld {
 	w := &CoreWorld{
 		name: name,

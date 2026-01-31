@@ -2,69 +2,60 @@ package ginka_ecs_go
 
 import "context"
 
-// EntityType identifies the category of an entity.
+// EntityType categorizes entities (e.g. player, npc, item).
 type EntityType int
 
-// Entity is a container of components.
-//
-// Notes:
-// - Implementations are expected to have at most one Component per ComponentType.
-// - Disabled entities are still expected to be accessible via the APIs (e.g. Get/Has).
-// - Tags() returns a copy.
+// Entity groups components and tags together.
 type Entity interface {
 	Activatable
 	Taggable
 
-	// Id is the stable identifier of the entity (e.g. player id).
+	// Id is the entity's stable identifier.
 	Id() uint64
-	// Name returns the human-readable name of the entity.
+	// Name is the human-readable label.
 	Name() string
-	// Type returns the category type of the entity.
+	// Type categorizes the entity.
 	Type() EntityType
 
-	// Has checks if the entity has a component of the given type.
+	// Has reports whether the entity has a component of type t.
 	Has(t ComponentType) bool
-	// Get retrieves a component by type, returning (nil, false) if not found.
+	// Get returns the component of type t, or (nil, false) if not present.
 	Get(t ComponentType) (Component, bool)
-	// MustGet retrieves a component by type, panicking if not found.
-	//
-	// The panic value should wrap ErrComponentNotFound.
+	// MustGet returns the component of type t, panicking if missing.
 	MustGet(t ComponentType) Component
 
-	// Add attaches c to the entity.
-	//
-	// If a component with the same ComponentType already exists, implementations
-	// should return ErrComponentAlreadyExists (possibly wrapped).
+	// Add attaches component c to the entity.
+	// Returns ErrComponentAlreadyExists if a component of the same type exists.
 	Add(c Component) error
-	// RemoveComponent detaches the component for t and returns whether it existed.
+	// RemoveComponent detaches the component of type t.
+	// Returns true if a component was removed.
 	RemoveComponent(t ComponentType) bool
-	// RemoveComponents detaches multiple components and returns the count of removed.
+	// RemoveComponents detaches multiple components.
+	// Returns the count of components actually removed.
 	RemoveComponents(types []ComponentType) int
-	// AllComponents returns a copy of components in stable insertion order.
+	// AllComponents returns all attached components in insertion order.
 	AllComponents() []Component
 }
 
-// EntityManager provides lifecycle management for entities of type T.
+// EntityManager keeps track of entities.
 type EntityManager[T Entity] interface {
-	// Create allocates and registers a new entity with a caller-provided id.
-	//
-	// This is the primary creation path for server-side entities where ids are
-	// assigned externally (e.g. player id).
+	// Create makes a new entity with the given id.
+	// The id typically comes from somewhere else (e.g. player id from auth).
 	Create(ctx context.Context, id uint64, name string, typ EntityType, tags ...Tag) (T, error)
-	// Add registers an existing entity (e.g. hydrated from persistence).
+	// Add registers an existing entity (e.g. loaded from DB).
 	Add(ctx context.Context, ent T) error
-	// Get retrieves an entity by ID.
+	// Get fetches an entity by id.
 	Get(id uint64) (T, bool)
-	// MustGet retrieves an entity by ID, panicking if not found.
+	// MustGet fetches an entity by id, panicking if not found.
 	MustGet(id uint64) T
-	// Remove deletes an entity by ID, returning true if the entity existed.
+	// Remove deletes an entity by id.
 	Remove(id uint64) bool
-	// Len returns the total number of managed entities.
+	// Len returns the total count.
 	Len() int
-	// ForEach calls the provided function for each entity.
+	// ForEach runs fn on every entity.
 	ForEach(ctx context.Context, fn func(ent T) error) error
-	// ForEachWithComponent iterates entities that have the given component type.
+	// ForEachWithComponent runs fn on entities that have component type t.
 	ForEachWithComponent(ctx context.Context, t ComponentType, fn func(ent T) error) error
-	// ForEachWithAllComponents iterates entities that have all given component types.
+	// ForEachWithAllComponents runs fn on entities that have all the given types.
 	ForEachWithAllComponents(ctx context.Context, types []ComponentType, fn func(ent T) error) error
 }

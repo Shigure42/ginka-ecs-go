@@ -2,10 +2,8 @@ package ginka_ecs_go
 
 import "time"
 
-// AsCommand extracts a typed payload from a command.
-//
-// It returns ErrUnhandledCommand when the command is not an action or the type
-// does not match.
+// AsCommand extracts a typed payload from an action command.
+// Returns ErrUnhandledCommand for non-action or type mismatch.
 func AsCommand[T any](cmd Command) (T, error) {
 	var zero T
 	if cmd.Kind != CommandKindAction {
@@ -19,8 +17,7 @@ func AsCommand[T any](cmd Command) (T, error) {
 }
 
 // TickEvent extracts the tick duration from a tick command.
-//
-// It returns ErrUnhandledCommand when the command is not a tick.
+// Returns ErrUnhandledCommand for non-tick commands.
 func TickEvent(cmd Command) (time.Duration, error) {
 	if cmd.Kind != CommandKindTick {
 		return 0, ErrUnhandledCommand

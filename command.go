@@ -2,7 +2,7 @@ package ginka_ecs_go
 
 import "time"
 
-// CommandKind identifies the kind of command submitted to a World.
+// CommandKind indicates what kind of command this is.
 type CommandKind int
 
 const (
@@ -10,11 +10,11 @@ const (
 	CommandKindTick
 )
 
-// Command is an external trigger (e.g. TCP request, cron tick, MQ message)
-// that is handled by systems in registration order.
+// Command is an external event (TCP request, cron tick, MQ message, etc.)
+// that gets dispatched to systems in registration order.
 //
-// When Kind is CommandKindAction, Payload contains the command data.
-// When Kind is CommandKindTick, Dt is used and Payload is ignored.
+// If Kind is CommandKindAction, Payload contains the command data.
+// If Kind is CommandKindTick, Dt contains the delta time and Payload is ignored.
 type Command struct {
 	Kind    CommandKind
 	Payload any
