@@ -36,8 +36,12 @@ type Entity interface {
 	// If a component with the same ComponentType already exists, implementations
 	// should return ErrComponentAlreadyExists (possibly wrapped).
 	Add(c Component) error
-	// Remove detaches the component for t and returns whether it existed.
-	Remove(t ComponentType) bool
+	// RemoveComponent detaches the component for t and returns whether it existed.
+	RemoveComponent(t ComponentType) bool
+	// RemoveComponents detaches multiple components and returns the count of removed.
+	RemoveComponents(types []ComponentType) int
+	// AllComponents returns a copy of components in stable insertion order.
+	AllComponents() []Component
 }
 
 // EntityManager provides lifecycle management for entities of type T.
@@ -59,4 +63,8 @@ type EntityManager[T Entity] interface {
 	Len() int
 	// ForEach calls the provided function for each entity.
 	ForEach(ctx context.Context, fn func(ent T) error) error
+	// ForEachWithComponent iterates entities that have the given component type.
+	ForEachWithComponent(ctx context.Context, t ComponentType, fn func(ent T) error) error
+	// ForEachWithAllComponents iterates entities that have all given component types.
+	ForEachWithAllComponents(ctx context.Context, types []ComponentType, fn func(ent T) error) error
 }

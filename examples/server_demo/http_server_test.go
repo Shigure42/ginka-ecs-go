@@ -16,7 +16,7 @@ import (
 
 func TestHTTPServerFlow(t *testing.T) {
 	baseDir := t.TempDir()
-	world := ginka_ecs_go.NewCoreWorld("http-world", ginka_ecs_go.WithTickInterval(0))
+	world := ginka_ecs_go.NewCoreWorld("http-world")
 	if err := world.Register(&AuthSystem{}, &ProfileSystem{}, &WalletSystem{}, NewFilePersistenceSystem(baseDir)); err != nil {
 		t.Fatalf("register systems: %v", err)
 	}
@@ -86,8 +86,8 @@ func TestHTTPServerFlow(t *testing.T) {
 	checkPlayer(1001, "AkiHero", 120)
 	checkPlayer(2002, "Mio", 45)
 
-	if err := world.TickOnce(context.Background(), time.Second); err != nil {
-		t.Fatalf("tick once: %v", err)
+	if err := world.Submit(context.Background(), ginka_ecs_go.NewTick(time.Second)); err != nil {
+		t.Fatalf("tick: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(baseDir, "1001", "profile.json")); err != nil {
 		t.Fatalf("expected profile persisted: %v", err)

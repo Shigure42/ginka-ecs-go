@@ -21,21 +21,25 @@ type World interface {
 
 	// Entities returns the entity manager used by systems to access entities.
 	Entities() EntityManager[DataEntity]
+	// EntitiesByName returns a named entity manager, if registered.
+	EntitiesByName(name string) (EntityManager[DataEntity], bool)
 	// Register installs systems into the world.
 	//
-	// Order matters: when a command is submitted, eligible systems are invoked in
-	// registration order.
+	// Order matters: the first system that handles an event wins.
 	//
 	// Implementations should return ErrSystemAlreadyRegistered (possibly wrapped)
 	// if a system with the same name is registered more than once.
 	Register(systems ...System) error
-	// Submit routes and executes cmd, guaranteeing serial handling per EntityId.
+	// Submit routes and executes cmd.
+	//
+	// Submit executes synchronously in the caller goroutine.
+	// Use CommandKindTick for tick execution.
 	//
 	// Dispatch contract:
-	// - Only systems implementing CommandSystem are invoked.
-	// - If a system also implements CommandSubscriber, it is invoked only when cmd.Type()
-	//   is included in SubscribedCommands().
-	// - If no eligible system is invoked, implementations should return ErrUnhandledCommand
+	// - Systems are invoked in registration order.
+	// - A system that does not handle the command should return ErrUnhandledCommand.
+	// - The first system that returns nil or a non-ErrUnhandledCommand error stops dispatch.
+	// - If no system handles the command, implementations should return ErrUnhandledCommand
 	//   (possibly wrapped).
 	Submit(ctx context.Context, cmd Command) error
 }

@@ -14,7 +14,7 @@ import (
 func TestServerDemoFlow(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	world := ginka_ecs_go.NewCoreWorld("test-world", ginka_ecs_go.WithTickInterval(0))
+	world := ginka_ecs_go.NewCoreWorld("test-world")
 	if err := world.Register(&AuthSystem{}, &ProfileSystem{}, &WalletSystem{}, NewFilePersistenceSystem(baseDir)); err != nil {
 		t.Fatalf("register systems: %v", err)
 	}
@@ -29,13 +29,13 @@ func TestServerDemoFlow(t *testing.T) {
 
 	playerId := uint64(1001)
 
-	if err := world.Submit(ctx, LoginCommand{PlayerId: playerId, Name: "Aki"}); err != nil {
+	if err := world.Submit(ctx, ginka_ecs_go.NewAction(LoginCommand{PlayerId: playerId, Name: "Aki"})); err != nil {
 		t.Fatalf("submit login: %v", err)
 	}
-	if err := world.Submit(ctx, AddGoldCommand{PlayerId: playerId, Amount: 120}); err != nil {
+	if err := world.Submit(ctx, ginka_ecs_go.NewAction(AddGoldCommand{PlayerId: playerId, Amount: 120})); err != nil {
 		t.Fatalf("submit add gold: %v", err)
 	}
-	if err := world.Submit(ctx, RenameCommand{PlayerId: playerId, Name: "AkiHero"}); err != nil {
+	if err := world.Submit(ctx, ginka_ecs_go.NewAction(RenameCommand{PlayerId: playerId, Name: "AkiHero"})); err != nil {
 		t.Fatalf("submit rename: %v", err)
 	}
 
@@ -66,7 +66,7 @@ func TestServerDemoFlow(t *testing.T) {
 		t.Fatalf("wallet gold = %d", wallet.Gold)
 	}
 
-	if err := world.TickOnce(ctx, time.Second); err != nil {
+	if err := world.Submit(ctx, ginka_ecs_go.NewTick(time.Second)); err != nil {
 		t.Fatalf("tick: %v", err)
 	}
 	if len(entity.DirtyTypes()) != 0 {

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	ginka_ecs_go "github.com/Shigure42/ginka-ecs-go"
 )
@@ -23,34 +22,31 @@ func (s *FilePersistenceSystem) Name() string {
 	return "file-persistence"
 }
 
-func (s *FilePersistenceSystem) TickShard(ctx context.Context, w ginka_ecs_go.World, _ time.Duration, shardIdx int, shardCount int) error {
+func (s *FilePersistenceSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
+	_, err := ginka_ecs_go.TickEvent(cmd)
+	if err != nil {
+		return err
+	}
 	if s.baseDir == "" {
 		return fmt.Errorf("file persistence: baseDir is empty")
 	}
 	return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
-		if ginka_ecs_go.ShardIndex(ent.Id(), shardCount) != shardIdx {
-			return nil
-		}
-		dirty := ent.DirtyTypes()
+		dirty := ent.DirtyDataComponents()
 		if len(dirty) == 0 {
 			return nil
 		}
-		for _, t := range dirty {
-			c, ok := ent.GetData(t)
-			if !ok {
-				continue
-			}
+		for _, c := range dirty {
 			payload, err := c.Marshal()
 			if err != nil {
 				return err
 			}
-			key := sanitizeKey(c.PersistKey())
+			key := sanitizeKey(c.StorageKey())
 			path := filepath.Join(s.baseDir, fmt.Sprintf("%d", ent.Id()), key+".json")
 			if err := writeFileAtomic(path, payload, 0o644); err != nil {
 				return err
 			}
 		}
-		ent.ClearDirty(dirty...)
+		ent.ClearDirty()
 		return nil
 	})
 }

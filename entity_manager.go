@@ -12,23 +12,41 @@ import (
 // This allows for dependency injection and flexible entity construction.
 type EntityFactory[T Entity] func(id uint64, name string, typ EntityType, tags ...Tag) (T, error)
 
-// MapEntityManager is a simple entity manager backed by a Go map.
+// MapEntityManager is a simple entity manager backed by sharded Go maps.
 //
 // It only maintains an in-process index of entities. Loading/hydration from
 // other sources should be done by the caller via Create/Add.
 type MapEntityManager[T Entity] struct {
-	mu      sync.RWMutex
-	byId    map[uint64]T
-	factory EntityFactory[T]
+	shards    []entityShard[T]
+	shardMask uint64
+	factory   EntityFactory[T]
 }
 
-// NewMapEntityManager creates a new MapEntityManager with the given entity factory.
-func NewMapEntityManager[T Entity](factory EntityFactory[T]) *MapEntityManager[T] {
-	m := &MapEntityManager[T]{
-		byId:    make(map[uint64]T),
-		factory: factory,
+type entityShard[T Entity] struct {
+	mu   sync.RWMutex
+	byId map[uint64]T
+}
+
+const defaultEntityShardCount = 128
+
+// NewEntityManager creates a new MapEntityManager with the given entity factory.
+func NewEntityManager[T Entity](factory EntityFactory[T], shardCount int) *MapEntityManager[T] {
+	if shardCount <= 0 {
+		shardCount = defaultEntityShardCount
 	}
-	return m
+	count := nextPow2(uint64(shardCount))
+	if count == 0 {
+		count = defaultEntityShardCount
+	}
+	shards := make([]entityShard[T], int(count))
+	for i := range shards {
+		shards[i].byId = make(map[uint64]T)
+	}
+	return &MapEntityManager[T]{
+		shards:    shards,
+		shardMask: count - 1,
+		factory:   factory,
+	}
 }
 
 // Create allocates and registers a new entity with the given parameters.
@@ -77,12 +95,13 @@ func (m *MapEntityManager[T]) Add(ctx context.Context, ent T) error {
 		return fmt.Errorf("add entity: %w", ErrInvalidEntityId)
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.byId[id]; ok {
+	shard := m.shard(id)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	if _, ok := shard.byId[id]; ok {
 		return fmt.Errorf("add entity %d: %w", id, ErrEntityAlreadyExists)
 	}
-	m.byId[id] = ent
+	shard.byId[id] = ent
 	return nil
 }
 
@@ -111,9 +130,10 @@ func isNil[T any](v T) bool {
 
 // Get retrieves an entity by ID.
 func (m *MapEntityManager[T]) Get(id uint64) (T, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ent, ok := m.byId[id]
+	shard := m.shard(id)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	ent, ok := shard.byId[id]
 	return ent, ok
 }
 
@@ -128,18 +148,24 @@ func (m *MapEntityManager[T]) MustGet(id uint64) T {
 
 // Remove deletes an entity by ID, returning true if the entity existed.
 func (m *MapEntityManager[T]) Remove(id uint64) bool {
-	m.mu.Lock()
-	_, ok := m.byId[id]
-	delete(m.byId, id)
-	m.mu.Unlock()
+	shard := m.shard(id)
+	shard.mu.Lock()
+	_, ok := shard.byId[id]
+	delete(shard.byId, id)
+	shard.mu.Unlock()
 	return ok
 }
 
 // Len returns the total number of managed entities.
 func (m *MapEntityManager[T]) Len() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.byId)
+	count := 0
+	for i := range m.shards {
+		shard := &m.shards[i]
+		shard.mu.RLock()
+		count += len(shard.byId)
+		shard.mu.RUnlock()
+	}
+	return count
 }
 
 // ForEach calls the provided function for each entity.
@@ -147,42 +173,24 @@ func (m *MapEntityManager[T]) ForEach(ctx context.Context, fn func(ent T) error)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-
-	m.mu.RLock()
-	snapshot := make([]T, 0, len(m.byId))
-	for _, ent := range m.byId {
-		snapshot = append(snapshot, ent)
-	}
-	m.mu.RUnlock()
-
-	for _, ent := range snapshot {
+	for i := range m.shards {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := fn(ent); err != nil {
-			return err
+		shard := &m.shards[i]
+		shard.mu.RLock()
+		snapshot := make([]T, 0, len(shard.byId))
+		for _, ent := range shard.byId {
+			snapshot = append(snapshot, ent)
 		}
-	}
-	return nil
-}
-
-// Range iterates entities under a read lock without allocating.
-//
-// The callback must not call methods that acquire the write lock (e.g. Add/Create/Remove),
-// otherwise it may deadlock.
-func (m *MapEntityManager[T]) Range(ctx context.Context, fn func(ent T) error) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, ent := range m.byId {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := fn(ent); err != nil {
-			return err
+		shard.mu.RUnlock()
+		for _, ent := range snapshot {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := fn(ent); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -200,10 +208,10 @@ func (m *MapEntityManager[T]) ForEachWithComponent(ctx context.Context, t Compon
 	})
 }
 
-// ForEachWithComponents iterates entities that have all given component types.
+// ForEachWithAllComponents iterates entities that have all given component types.
 //
 // Implementations may use a scan or an index.
-func (m *MapEntityManager[T]) ForEachWithComponents(ctx context.Context, types []ComponentType, fn func(ent T) error) error {
+func (m *MapEntityManager[T]) ForEachWithAllComponents(ctx context.Context, types []ComponentType, fn func(ent T) error) error {
 	if len(types) == 0 {
 		return m.ForEach(ctx, fn)
 	}
@@ -215,6 +223,37 @@ func (m *MapEntityManager[T]) ForEachWithComponents(ctx context.Context, types [
 		}
 		return fn(ent)
 	})
+}
+
+func (m *MapEntityManager[T]) shard(id uint64) *entityShard[T] {
+	idx := int(hashEntityId(id) & m.shardMask)
+	return &m.shards[idx]
+}
+
+// hashEntityId mixes an entity id for shard routing.
+//
+// This is intentionally cheap; it does not need to be cryptographically strong.
+func hashEntityId(id uint64) uint64 {
+	// A splitmix64-style mix.
+	x := id + 0x9e3779b97f4a7c15
+	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
+	x = (x ^ (x >> 27)) * 0x94d049bb133111eb
+	x = x ^ (x >> 31)
+	return x
+}
+
+func nextPow2(n uint64) uint64 {
+	if n == 0 {
+		return 1
+	}
+	n--
+	n |= n >> 1
+	n |= n >> 2
+	n |= n >> 4
+	n |= n >> 8
+	n |= n >> 16
+	n |= n >> 32
+	return n + 1
 }
 
 var _ EntityManager[Entity] = (*MapEntityManager[Entity])(nil)

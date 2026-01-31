@@ -13,18 +13,18 @@ const (
 )
 
 type ProfileComponent struct {
-	ginka_ecs_go.ComponentCore
+	ginka_ecs_go.DataComponentCore
 	Name string `json:"name"`
 }
 
 func NewProfileComponent(name string) *ProfileComponent {
 	return &ProfileComponent{
-		ComponentCore: ginka_ecs_go.NewComponentCore(ComponentTypeProfile),
-		Name:          name,
+		DataComponentCore: ginka_ecs_go.NewDataComponentCore(ComponentTypeProfile),
+		Name:              name,
 	}
 }
 
-func (c *ProfileComponent) PersistKey() string {
+func (c *ProfileComponent) StorageKey() string {
 	return "profile"
 }
 
@@ -44,18 +44,18 @@ func (c *ProfileComponent) Unmarshal(data []byte) error {
 }
 
 type WalletComponent struct {
-	ginka_ecs_go.ComponentCore
+	ginka_ecs_go.DataComponentCore
 	Gold int64 `json:"gold"`
 }
 
 func NewWalletComponent(gold int64) *WalletComponent {
 	return &WalletComponent{
-		ComponentCore: ginka_ecs_go.NewComponentCore(ComponentTypeWallet),
-		Gold:          gold,
+		DataComponentCore: ginka_ecs_go.NewDataComponentCore(ComponentTypeWallet),
+		Gold:              gold,
 	}
 }
 
-func (c *WalletComponent) PersistKey() string {
+func (c *WalletComponent) StorageKey() string {
 	return "wallet"
 }
 

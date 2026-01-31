@@ -41,7 +41,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
-	if err := s.world.Submit(r.Context(), LoginCommand{PlayerId: req.PlayerId, Name: req.Name}); err != nil {
+	if err := s.world.Submit(r.Context(), ginka_ecs_go.NewAction(LoginCommand{PlayerId: req.PlayerId, Name: req.Name})); err != nil {
 		http.Error(w, fmt.Sprintf("submit login: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -65,7 +65,7 @@ func (s *Server) handleAddGold(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
-	if err := s.world.Submit(r.Context(), AddGoldCommand{PlayerId: req.PlayerId, Amount: req.Amount}); err != nil {
+	if err := s.world.Submit(r.Context(), ginka_ecs_go.NewAction(AddGoldCommand{PlayerId: req.PlayerId, Amount: req.Amount})); err != nil {
 		http.Error(w, fmt.Sprintf("submit add gold: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -89,7 +89,7 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
-	if err := s.world.Submit(r.Context(), RenameCommand{PlayerId: req.PlayerId, Name: req.Name}); err != nil {
+	if err := s.world.Submit(r.Context(), ginka_ecs_go.NewAction(RenameCommand{PlayerId: req.PlayerId, Name: req.Name})); err != nil {
 		http.Error(w, fmt.Sprintf("submit rename: %v", err), http.StatusBadRequest)
 		return
 	}

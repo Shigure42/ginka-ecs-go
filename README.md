@@ -8,8 +8,7 @@ ginka-ecs-go is a lightweight, in-process Entity-Component-System (ECS) library 
 - **Entity management**: Create, retrieve, and delete entities with stable IDs
 - **Component composition**: Attach data-bearing components to entities
 - **System execution**: Define business logic via systems that process entities
-- **Command routing**: Submit commands that are executed serially per entity
-- **Sharded tick execution**: Parallel tick processing with deterministic entity sharding
+- **Command routing**: Submit commands (including ticks) that are executed synchronously by systems
 - **Persistence**: Dirty tracking and serialization for data components
 
 ## Core Concepts
@@ -27,7 +26,9 @@ type Entity interface {
     Get(t ComponentType) (Component, bool)
     MustGet(t ComponentType) Component
     Add(c Component) error
-    Remove(t ComponentType) bool
+    RemoveComponent(t ComponentType) bool
+    RemoveComponents(types []ComponentType) int
+    AllComponents() []Component
 }
 ```
 
@@ -50,7 +51,10 @@ For persistence-capable components, use `DataComponent`:
 ```go
 type DataComponent interface {
     Component
-    PersistKey() string      // Persistence identifier (e.g., table name)
+    StorageKey() string      // Storage identifier (e.g., table name)
+    Version() uint64
+    SetVersion(uint64)
+    BumpVersion() uint64
     Marshal() ([]byte, error)
     Unmarshal([]byte) error
 }
@@ -58,26 +62,32 @@ type DataComponent interface {
 
 ### System
 
-Systems contain the business logic that processes entities. A system is identified by a unique name and can implement one or more of these interfaces:
+Systems contain the business logic that processes entities. A system is identified by a unique name and handles commands (including tick commands):
 
 ```go
 type System interface {
     Name() string
-}
-
-type CommandSystem interface {
-    System
     Handle(ctx context.Context, w World, cmd Command) error
 }
 
-type ShardedTickSystem interface {
-    System
-    TickShard(ctx context.Context, w World, dt time.Duration, shardIdx, shardCount int) error
+Systems that do not handle a command should return `ErrUnhandledCommand` so the next
+system can try. The first system that handles a command stops dispatch.
+
+type CommandKind int
+
+const (
+    CommandKindAction CommandKind = iota + 1
+    CommandKindTick
+)
+
+type Command struct {
+    Kind    CommandKind
+    Payload any
+    Dt      time.Duration
 }
 
-type CommandSubscriber interface {
-    SubscribedCommands() []CommandType
-}
+Use `NewAction` and `NewTick` helpers to create commands.
+Use `CommandKindTick` for tick execution.
 ```
 
 ### World
@@ -88,14 +98,18 @@ The world is the central container that manages all entities, components, and sy
 type World interface {
     Run() error
     Stop() error
+    GetName() string
     IsRunning() bool
+    GetStopWeight() int64
+    SetStopWeight(w int64)
     Entities() EntityManager[DataEntity]
+    EntitiesByName(name string) (EntityManager[DataEntity], bool)
     Register(systems ...System) error
     Submit(ctx context.Context, cmd Command) error
 }
 ```
 
-`CoreWorld` is the primary implementation, providing sharded command execution and tick processing.
+`CoreWorld` is the primary implementation, providing synchronous command execution in registration order.
 
 ## Quick Start Guide
 
@@ -117,55 +131,55 @@ const (
 )
 
 type PositionComponent struct {
-    ginka_ecs_go.ComponentCore
+    ginka_ecs_go.DataComponentCore
     X, Y float64
 }
 
 func NewPositionComponent(x, y float64) *PositionComponent {
     return &PositionComponent{
-        ComponentCore: ginka_ecs_go.NewComponentCore(ComponentTypePosition),
-        X:             x,
-        Y:             y,
+        DataComponentCore: ginka_ecs_go.NewDataComponentCore(ComponentTypePosition),
+        X:                 x,
+        Y:                 y,
     }
 }
 
 // Implement DataComponent for persistence
-func (c *PositionComponent) PersistKey() string   { return "position" }
+func (c *PositionComponent) StorageKey() string   { return "position" }
 func (c *PositionComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
 func (c *PositionComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
 
 type VelocityComponent struct {
-    ginka_ecs_go.ComponentCore
+    ginka_ecs_go.DataComponentCore
     X, Y float64
 }
 
 func NewVelocityComponent(x, y float64) *VelocityComponent {
     return &VelocityComponent{
-        ComponentCore: ginka_ecs_go.NewComponentCore(ComponentTypeVelocity),
-        X:             x,
-        Y:             y,
+        DataComponentCore: ginka_ecs_go.NewDataComponentCore(ComponentTypeVelocity),
+        X:                 x,
+        Y:                 y,
     }
 }
 
-func (c *VelocityComponent) PersistKey() string   { return "velocity" }
+func (c *VelocityComponent) StorageKey() string   { return "velocity" }
 func (c *VelocityComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
 func (c *VelocityComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
 
 type HealthComponent struct {
-    ginka_ecs_go.ComponentCore
+    ginka_ecs_go.DataComponentCore
     HP    int
     MaxHP int
 }
 
 func NewHealthComponent(hp, maxHP int) *HealthComponent {
     return &HealthComponent{
-        ComponentCore: ginka_ecs_go.NewComponentCore(ComponentTypeHealth),
-        HP:            hp,
-        MaxHP:         maxHP,
+        DataComponentCore: ginka_ecs_go.NewDataComponentCore(ComponentTypeHealth),
+        HP:                hp,
+        MaxHP:             maxHP,
     }
 }
 
-func (c *HealthComponent) PersistKey() string   { return "health" }
+func (c *HealthComponent) StorageKey() string   { return "health" }
 func (c *HealthComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
 func (c *HealthComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
 ```
@@ -186,29 +200,18 @@ type PersistentTag ginka_ecs_go.Tag
 
 ### 3. Create Command Types
 
-```go
-const (
-    CommandTypeLogin ginka_ecs_go.CommandType = iota + 1
-    CommandTypeMove
-    CommandTypeAttack
-    CommandTypeHeal
-)
+Commands are plain payload structs. They do not implement any interface; they are
+wrapped into `Command` via `NewAction` or `NewTick` when submitted.
 
+```go
 type LoginCommand struct {
     PlayerID uint64
     Username string
 }
-
-func (c LoginCommand) Type() ginka_ecs_go.CommandType    { return CommandTypeLogin }
-func (c LoginCommand) EntityId() uint64                   { return c.PlayerID }
-
 type MoveCommand struct {
     PlayerID uint64
     X, Y     float64
 }
-
-func (c MoveCommand) Type() ginka_ecs_go.CommandType    { return CommandTypeMove }
-func (c MoveCommand) EntityId() uint64                   { return c.PlayerID }
 ```
 
 ### 4. Implement Systems
@@ -220,14 +223,10 @@ type AuthSystem struct{}
 
 func (s *AuthSystem) Name() string { return "auth" }
 
-func (s *AuthSystem) SubscribedCommands() []ginka_ecs_go.CommandType {
-    return []ginka_ecs_go.CommandType{CommandTypeLogin}
-}
-
 func (s *AuthSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-    login, ok := cmd.(LoginCommand)
-    if !ok {
-        return fmt.Errorf("auth: unexpected command %T", cmd)
+    login, err := ginka_ecs_go.AsCommand[LoginCommand](cmd)
+    if err != nil {
+        return err
     }
 
     if _, exists := w.Entities().Get(login.PlayerID); exists {
@@ -260,13 +259,12 @@ type MovementSystem struct{}
 
 func (s *MovementSystem) Name() string { return "movement" }
 
-func (s *MovementSystem) TickShard(ctx context.Context, w ginka_ecs_go.World, dt time.Duration, shardIdx, shardCount int) error {
+func (s *MovementSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
+    dt, err := ginka_ecs_go.TickEvent(cmd)
+    if err != nil {
+        return err
+    }
     return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
-        // Filter to only entities in this shard
-        if ginka_ecs_go.ShardIndex(ent.Id(), shardCount) != shardIdx {
-            return nil
-        }
-
         // Skip disabled entities
         if !ent.Enabled() {
             return nil
@@ -283,14 +281,17 @@ func (s *MovementSystem) TickShard(ctx context.Context, w ginka_ecs_go.World, dt
         }
 
         // Apply velocity
-        posC := pos.(*PositionComponent)
         velC := vel.(*VelocityComponent)
 
-        posC.X += velC.X * dt.Seconds()
-        posC.Y += velC.Y * dt.Seconds()
-
-        // Mark as dirty for persistence
-        ent.MarkDirty(ComponentTypePosition)
+        // Update position and mark dirty/version via helper.
+        if err := ginka_ecs_go.UpdateData(ent, ComponentTypePosition, func(c ginka_ecs_go.DataComponent) error {
+            posC := c.(*PositionComponent)
+            posC.X += velC.X * dt.Seconds()
+            posC.Y += velC.Y * dt.Seconds()
+            return nil
+        }); err != nil {
+            return err
+        }
 
         return nil
     })
@@ -306,9 +307,6 @@ func main() {
     // Create world with external tick driver (default)
     world := ginka_ecs_go.NewCoreWorld("game-world")
 
-    // Or enable internal ticker (60 FPS)
-    // world := ginka_ecs_go.NewCoreWorld("game-world", ginka_ecs_go.WithTickInterval(16*time.Millisecond))
-
     // Register systems
     if err := world.Register(&AuthSystem{}, &MovementSystem{}); err != nil {
         log.Fatal(err)
@@ -320,13 +318,13 @@ func main() {
     }
     defer world.Stop()
 
-    // Submit commands (handled serially per entity)
-    if err := world.Submit(ctx, LoginCommand{PlayerID: 1001, Username: "Player1"}); err != nil {
+    // Submit commands (handled synchronously by systems)
+    if err := world.Submit(ctx, ginka_ecs_go.NewAction(LoginCommand{PlayerID: 1001, Username: "Player1"})); err != nil {
         log.Fatal(err)
     }
 
     // Tick the world (for external tick driver)
-    if err := world.TickOnce(ctx, 16*time.Millisecond); err != nil {
+    if err := world.Submit(ctx, ginka_ecs_go.NewTick(16*time.Millisecond)); err != nil {
         log.Fatal(err)
     }
 }
@@ -360,15 +358,17 @@ if !ok {
     // Component not found
 }
 
-// Mutate a component (marks as dirty)
-player.MutateData(ComponentTypeHealth, func(c ginka_ecs_go.DataComponent) error {
+// Update a component (bumps version and marks dirty)
+if err := ginka_ecs_go.UpdateData(player, ComponentTypeHealth, func(c ginka_ecs_go.DataComponent) error {
     health := c.(*HealthComponent)
     health.HP -= damage
     return nil
-})
+}); err != nil {
+    // Handle error
+}
 
 // Remove a component
-player.Remove(ComponentTypeHealth)
+player.RemoveComponent(ComponentTypeHealth)
 ```
 
 ### Dirty Tracking
@@ -377,14 +377,12 @@ player.Remove(ComponentTypeHealth)
 
 ```go
 // Check which components are dirty
-dirty := player.DirtyTypes()
-for _, t := range dirty {
-    c, _ := player.GetData(t)
+for _, c := range player.DirtyDataComponents() {
     // Persist c...
 }
 
 // Clear dirty flags after persistence
-player.ClearDirty(dirty...)
+player.ClearDirty()
 ```
 
 ### Tags
@@ -423,49 +421,35 @@ player.SetEnabled(false)
 player.SetEnabled(true)
 ```
 
-### Sharded Tick Execution
+### Tick Handling
 
-`CoreWorld` uses 256 shards (configurable) for parallel tick execution. Each shard handles commands and ticks serially, but different shards run concurrently.
+Tick commands are submitted via `Submit` and handled like any other command.
 
 ```go
-type MyTickSystem struct{}
-
-func (s *MyTickSystem) Name() string { return "my-tick" }
-
-func (s *MyTickSystem) TickShard(ctx context.Context, w ginka_ecs_go.World, dt time.Duration, shardIdx, shardCount int) error {
-    return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
-        // Only process entities assigned to this shard
-        if ginka_ecs_go.ShardIndex(ent.Id(), shardCount) != shardIdx {
-            return nil
-        }
-
-        // Process entity...
-        return nil
-    })
+if err := world.Submit(ctx, ginka_ecs_go.NewTick(16*time.Millisecond)); err != nil {
+    log.Fatal(err)
 }
 ```
 
-The shard index is computed deterministically using `ShardIndex(entityId, shardCount)`. This ensures the same entity always goes to the same shard across ticks.
+### Command Handling
 
-### Command Subscribers
-
-Systems can subscribe to specific command types using `CommandSubscriber`:
+All systems receive all commands in registration order. Systems that do not handle a
+command should return `ErrUnhandledCommand` so the next system can try.
 
 ```go
-type WalletSystem struct{}
-
-func (s *WalletSystem) Name() string { return "wallet" }
-
-func (s *WalletSystem) SubscribedCommands() []ginka_ecs_go.CommandType {
-    return []ginka_ecs_go.CommandType{CommandTypeAddGold, CommandTypeSpendGold}
+if err := world.Submit(ctx, ginka_ecs_go.NewAction(LoginCommand{PlayerID: 1001, Username: "Player1"})); err != nil {
+    log.Fatal(err)
 }
 
-func (s *WalletSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
-    // Handle wallet commands...
+func (s *AuthSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
+    login, err := ginka_ecs_go.AsCommand[LoginCommand](cmd)
+    if err != nil {
+        return err
+    }
+    // handle login...
+    return nil
 }
 ```
-
-If a system implements `CommandSystem` but not `CommandSubscriber`, it receives all commands.
 
 ### Context Cancellation
 
@@ -489,24 +473,36 @@ if err := world.Submit(ctx, cmd); err != nil {
 `CoreWorld` supports several options:
 
 ```go
-// Set tick interval (0 = external tick driver, >0 = internal ticker)
-WithTickInterval(16 * time.Millisecond)
-
-// Set number of shards (must be power of 2, default 256)
-WithShardCount(64)
-
 // Provide custom entity manager
 WithEntityManager(customManager)
 
-// Handle tick errors
-WithTickErrorHandler(func(err error) {
-    log.Printf("tick error: %v", err)
-})
+// Provide named entity manager
+WithEntityManagerNamed("npc", npcManager)
+
+```
+
+### Multiple Entity Managers
+
+If you want to manage different entity sets separately (e.g. players vs. NPCs),
+register named managers and access them via `EntitiesByName`.
+
+The default manager is registered under the name `default` and is returned by `Entities()`.
+
+```go
+playerManager := ginka_ecs_go.NewEntityManager(playerFactory, 128)
+npcManager := ginka_ecs_go.NewEntityManager(npcFactory, 128)
+world := ginka_ecs_go.NewCoreWorld("game-world",
+    ginka_ecs_go.WithEntityManagerNamed("players", playerManager),
+    ginka_ecs_go.WithEntityManagerNamed("npcs", npcManager),
+)
+
+players, _ := world.EntitiesByName("players")
+npcs, _ := world.EntitiesByName("npcs")
 ```
 
 ## Persistence Pattern
 
-A common pattern for persistence is a `ShardedTickSystem` that flushes dirty components:
+A common pattern for persistence is a tick-handling system that flushes dirty components:
 
 ```go
 type PersistenceSystem struct {
@@ -515,16 +511,14 @@ type PersistenceSystem struct {
 
 func (s *PersistenceSystem) Name() string { return "persistence" }
 
-func (s *PersistenceSystem) TickShard(ctx context.Context, w ginka_ecs_go.World, dt time.Duration, shardIdx, shardCount int) error {
+func (s *PersistenceSystem) Handle(ctx context.Context, w ginka_ecs_go.World, cmd ginka_ecs_go.Command) error {
+    if _, err := ginka_ecs_go.TickEvent(cmd); err != nil {
+        return err
+    }
     return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
-        if ginka_ecs_go.ShardIndex(ent.Id(), shardCount) != shardIdx {
-            return nil
-        }
-
-        for _, t := range ent.DirtyTypes() {
-            c, _ := ent.GetData(t)
+        for _, c := range ent.DirtyDataComponents() {
             data, _ := c.Marshal()
-            if err := s.db.Save(ent.Id(), c.PersistKey(), data); err != nil {
+            if err := s.db.Save(ent.Id(), c.StorageKey(), data); err != nil {
                 return err
             }
         }
@@ -548,7 +542,7 @@ var (
     ErrEntityNotFound         // Entity with this ID not found
     ErrInvalidEntityId        // Zero ID provided
     ErrSystemAlreadyRegistered// Duplicate system name
-    ErrUnhandledCommand       // No system handled the command
+    ErrUnhandledCommand       // No system handled the command or tick event
     ErrWorldNotRunning        // Operation requires running world
     ErrWorldAlreadyRunning    // Operation requires stopped world
 )
@@ -556,29 +550,27 @@ var (
 
 ## Concurrency Model
 
-- **Submit** is safe for concurrent use from multiple goroutines
-- Commands are serialized per EntityId via sharding
-- **TickOnce** should be called from one goroutine (or synchronized externally)
-- Systems receive commands and tick callbacks serially per shard
-- Within a shard, no two systems will execute concurrently for the same entity
+- **Submit** is safe for concurrent use from multiple goroutines and executes synchronously in the caller goroutine
+- Concurrency safety depends on your systems and data access patterns
 
-This model ensures deterministic ordering for entity-specific operations while allowing parallel processing across shards.
+Ordering guarantees are provided by your external command queue when needed.
 
 ## Complete Example
 
 See `examples/server_demo/` for a fully functional example demonstrating:
 - Component definition with JSON serialization
 - Command submission (login, add gold, rename)
-- Sharded tick system for persistence
+- Tick command handling for persistence
 - Integration with external tick driver
 
 ## Best Practices
 
-1. **Use typed constants** for ComponentType, EntityType, and CommandType
-2. **Embed ComponentCore** in components to reuse enabled/tag behavior
-3. **Check Enabled()** in tick systems to skip disabled entities
-4. **Use MutateData** for component updates to ensure dirty tracking
-5. **Implement CommandSubscriber** for targeted command handling
-6. **Use context propagation** for cancellable operations
-7. **Call TickOnce** or use WithTickInterval for game loop
-8. **Defer world.Stop()** for graceful shutdown
+1. **Use typed constants** for ComponentType and EntityType
+2. **Embed DataComponentCore** in data components to reuse enabled/tag behavior and version tracking
+3. **Use NewAction/NewTick** to build commands
+4. **Use AsCommand/TickEvent** helpers to parse commands cleanly
+5. **Use UpdateData** (or Tx + SetData) for component updates to ensure dirty tracking
+6. **Return ErrUnhandledCommand** when a system does not handle a command
+7. **Use context propagation** for cancellable operations
+8. **Submit CommandKindTick** from your external scheduler for the game loop
+9. **Defer world.Stop()** for graceful shutdown

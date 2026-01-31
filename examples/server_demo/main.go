@@ -11,7 +11,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	world := ginka_ecs_go.NewCoreWorld("demo-world", ginka_ecs_go.WithTickInterval(0))
+	world := ginka_ecs_go.NewCoreWorld("demo-world")
 	if err := world.Register(&AuthSystem{}, &ProfileSystem{}, &WalletSystem{}, NewFilePersistenceSystem("tmp/server_demo")); err != nil {
 		log.Fatal(err)
 	}
@@ -27,22 +27,22 @@ func main() {
 	playerId := uint64(1001)
 
 	fmt.Println("api: login")
-	if err := world.Submit(ctx, LoginCommand{PlayerId: playerId, Name: "Aki"}); err != nil {
+	if err := world.Submit(ctx, ginka_ecs_go.NewAction(LoginCommand{PlayerId: playerId, Name: "Aki"})); err != nil {
 		log.Fatal(err)
 	}
 
 	fmt.Println("api: add gold +120")
-	if err := world.Submit(ctx, AddGoldCommand{PlayerId: playerId, Amount: 120}); err != nil {
+	if err := world.Submit(ctx, ginka_ecs_go.NewAction(AddGoldCommand{PlayerId: playerId, Amount: 120})); err != nil {
 		log.Fatal(err)
 	}
 
 	fmt.Println("api: rename to AkiHero")
-	if err := world.Submit(ctx, RenameCommand{PlayerId: playerId, Name: "AkiHero"}); err != nil {
+	if err := world.Submit(ctx, ginka_ecs_go.NewAction(RenameCommand{PlayerId: playerId, Name: "AkiHero"})); err != nil {
 		log.Fatal(err)
 	}
 
 	fmt.Println("tick: flush dirty components")
-	if err := world.TickOnce(ctx, time.Second); err != nil {
+	if err := world.Submit(ctx, ginka_ecs_go.NewTick(time.Second)); err != nil {
 		log.Fatal(err)
 	}
 }
