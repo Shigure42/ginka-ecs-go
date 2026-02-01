@@ -32,7 +32,7 @@ func TestServerDemoFlow(t *testing.T) {
 		}
 	}()
 
-	playerId := uint64(1001)
+	playerId := "1001"
 
 	if err := authSys.Login(ctx, world, LoginRequest{PlayerId: playerId, Name: "Aki"}); err != nil {
 		t.Fatalf("login: %v", err)
@@ -46,7 +46,7 @@ func TestServerDemoFlow(t *testing.T) {
 
 	entity, ok := world.Entities().Get(playerId)
 	if !ok {
-		t.Fatalf("expected player %d", playerId)
+		t.Fatalf("expected player %s", playerId)
 	}
 	profileData, ok := entity.GetData(ComponentTypeProfile)
 	if !ok {

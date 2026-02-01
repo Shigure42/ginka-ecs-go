@@ -39,7 +39,7 @@ func (s *WalletSystem) Name() string {
 func (s *WalletSystem) AddGold(_ context.Context, w ginka_ecs_go.World, addGold AddGoldRequest) error {
 	player, exists := w.Entities().Get(addGold.PlayerId)
 	if !exists {
-		return fmt.Errorf("wallet system: player %d: %w", addGold.PlayerId, ginka_ecs_go.ErrEntityNotFound)
+		return fmt.Errorf("wallet system: player %s: %w", addGold.PlayerId, ginka_ecs_go.ErrEntityNotFound)
 	}
 	return ginka_ecs_go.UpdateData(player, ComponentTypeWallet, func(c ginka_ecs_go.DataComponent) error {
 		wallet, ok := c.(*WalletComponent)
@@ -60,7 +60,7 @@ func (s *ProfileSystem) Name() string {
 func (s *ProfileSystem) Rename(_ context.Context, w ginka_ecs_go.World, rename RenameRequest) error {
 	player, exists := w.Entities().Get(rename.PlayerId)
 	if !exists {
-		return fmt.Errorf("profile system: player %d: %w", rename.PlayerId, ginka_ecs_go.ErrEntityNotFound)
+		return fmt.Errorf("profile system: player %s: %w", rename.PlayerId, ginka_ecs_go.ErrEntityNotFound)
 	}
 	return ginka_ecs_go.UpdateData(player, ComponentTypeProfile, func(c ginka_ecs_go.DataComponent) error {
 		profile, ok := c.(*ProfileComponent)

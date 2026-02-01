@@ -11,7 +11,7 @@ type Entity interface {
 	Taggable
 
 	// Id is the entity's stable identifier.
-	Id() uint64
+	Id() string
 	// Name is the human-readable label.
 	Name() string
 	// Type categorizes the entity.
@@ -41,15 +41,15 @@ type Entity interface {
 type EntityManager[T Entity] interface {
 	// Create makes a new entity with the given id.
 	// The id typically comes from somewhere else (e.g. player id from auth).
-	Create(ctx context.Context, id uint64, name string, typ EntityType, tags ...Tag) (T, error)
+	Create(ctx context.Context, id string, name string, typ EntityType, tags ...Tag) (T, error)
 	// Add registers an existing entity (e.g. loaded from DB).
 	Add(ctx context.Context, ent T) error
 	// Get fetches an entity by id.
-	Get(id uint64) (T, bool)
+	Get(id string) (T, bool)
 	// MustGet fetches an entity by id, panicking if not found.
-	MustGet(id uint64) T
+	MustGet(id string) T
 	// Remove deletes an entity by id.
-	Remove(id uint64) bool
+	Remove(id string) bool
 	// Len returns the total count.
 	Len() int
 	// ForEach runs fn on every entity.

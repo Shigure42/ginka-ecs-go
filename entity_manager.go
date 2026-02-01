@@ -10,7 +10,7 @@ import (
 
 // EntityFactory is a function type that creates new entities of type T.
 // This allows for dependency injection and flexible entity construction.
-type EntityFactory[T Entity] func(id uint64, name string, typ EntityType, tags ...Tag) (T, error)
+type EntityFactory[T Entity] func(id string, name string, typ EntityType, tags ...Tag) (T, error)
 
 // MapEntityManager is a simple entity manager backed by sharded Go maps.
 //
@@ -24,7 +24,7 @@ type MapEntityManager[T Entity] struct {
 
 type entityShard[T Entity] struct {
 	mu   sync.RWMutex
-	byId map[uint64]T
+	byId map[string]T
 }
 
 const defaultEntityShardCount = 128
@@ -40,7 +40,7 @@ func NewEntityManager[T Entity](factory EntityFactory[T], shardCount int) *MapEn
 	}
 	shards := make([]entityShard[T], int(count))
 	for i := range shards {
-		shards[i].byId = make(map[uint64]T)
+		shards[i].byId = make(map[string]T)
 	}
 	return &MapEntityManager[T]{
 		shards:    shards,
@@ -50,12 +50,12 @@ func NewEntityManager[T Entity](factory EntityFactory[T], shardCount int) *MapEn
 }
 
 // Create allocates and registers a new entity with the given parameters.
-func (m *MapEntityManager[T]) Create(ctx context.Context, id uint64, name string, typ EntityType, tags ...Tag) (T, error) {
+func (m *MapEntityManager[T]) Create(ctx context.Context, id string, name string, typ EntityType, tags ...Tag) (T, error) {
 	var zero T
 	if err := ctx.Err(); err != nil {
 		return zero, err
 	}
-	if id == 0 {
+	if id == "" {
 		return zero, ErrInvalidEntityId
 	}
 	if m.factory == nil {
@@ -70,12 +70,12 @@ func (m *MapEntityManager[T]) Create(ctx context.Context, id uint64, name string
 		return zero, fmt.Errorf("create entity: nil entity")
 	}
 	if ent.Id() != id {
-		return zero, fmt.Errorf("create entity: id mismatch: want %d got %d", id, ent.Id())
+		return zero, fmt.Errorf("create entity: id mismatch: want %s got %s", id, ent.Id())
 	}
 
 	if err := m.Add(ctx, ent); err != nil {
 		if errors.Is(err, ErrEntityAlreadyExists) {
-			return zero, fmt.Errorf("create entity %d: %w", id, ErrEntityAlreadyExists)
+			return zero, fmt.Errorf("create entity %s: %w", id, ErrEntityAlreadyExists)
 		}
 		return zero, err
 	}
@@ -91,7 +91,7 @@ func (m *MapEntityManager[T]) Add(ctx context.Context, ent T) error {
 		return fmt.Errorf("add entity: nil entity")
 	}
 	id := ent.Id()
-	if id == 0 {
+	if id == "" {
 		return fmt.Errorf("add entity: %w", ErrInvalidEntityId)
 	}
 
@@ -99,7 +99,7 @@ func (m *MapEntityManager[T]) Add(ctx context.Context, ent T) error {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 	if _, ok := shard.byId[id]; ok {
-		return fmt.Errorf("add entity %d: %w", id, ErrEntityAlreadyExists)
+		return fmt.Errorf("add entity %s: %w", id, ErrEntityAlreadyExists)
 	}
 	shard.byId[id] = ent
 	return nil
@@ -129,7 +129,7 @@ func isNil[T any](v T) bool {
 }
 
 // Get retrieves an entity by ID.
-func (m *MapEntityManager[T]) Get(id uint64) (T, bool) {
+func (m *MapEntityManager[T]) Get(id string) (T, bool) {
 	shard := m.shard(id)
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
@@ -138,7 +138,7 @@ func (m *MapEntityManager[T]) Get(id uint64) (T, bool) {
 }
 
 // MustGet retrieves an entity by ID, panicking if not found.
-func (m *MapEntityManager[T]) MustGet(id uint64) T {
+func (m *MapEntityManager[T]) MustGet(id string) T {
 	ent, ok := m.Get(id)
 	if !ok {
 		panic(ErrEntityNotFound)
@@ -147,7 +147,7 @@ func (m *MapEntityManager[T]) MustGet(id uint64) T {
 }
 
 // Remove deletes an entity by ID, returning true if the entity existed.
-func (m *MapEntityManager[T]) Remove(id uint64) bool {
+func (m *MapEntityManager[T]) Remove(id string) bool {
 	shard := m.shard(id)
 	shard.mu.Lock()
 	_, ok := shard.byId[id]
@@ -225,19 +225,18 @@ func (m *MapEntityManager[T]) ForEachWithAllComponents(ctx context.Context, type
 	})
 }
 
-func (m *MapEntityManager[T]) shard(id uint64) *entityShard[T] {
+func (m *MapEntityManager[T]) shard(id string) *entityShard[T] {
 	idx := int(hashEntityId(id) & m.shardMask)
 	return &m.shards[idx]
 }
 
-// hashEntityId mixes an entity id for shard routing (cheap, non-cryptographic).
-func hashEntityId(id uint64) uint64 {
-	// A splitmix64-style mix.
-	x := id + 0x9e3779b97f4a7c15
-	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
-	x = (x ^ (x >> 27)) * 0x94d049bb133111eb
-	x = x ^ (x >> 31)
-	return x
+// hashEntityId hashes a string id for shard routing (cheap, non-cryptographic).
+func hashEntityId(id string) uint64 {
+	h := uint64(0)
+	for i := 0; i < len(id); i++ {
+		h = h*31 + uint64(id[i])
+	}
+	return h
 }
 
 func nextPow2(n uint64) uint64 {

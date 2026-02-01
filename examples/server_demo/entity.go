@@ -14,7 +14,7 @@ type PlayerEntity struct {
 	*ginka_ecs_go.DataEntityCore
 }
 
-func NewPlayerEntity(id uint64, name string, typ ginka_ecs_go.EntityType, tags ...ginka_ecs_go.Tag) *PlayerEntity {
+func NewPlayerEntity(id string, name string, typ ginka_ecs_go.EntityType, tags ...ginka_ecs_go.Tag) *PlayerEntity {
 	return &PlayerEntity{
 		DataEntityCore: ginka_ecs_go.NewDataEntityCore(id, name, typ, tags...),
 	}

@@ -14,7 +14,7 @@ type DataEntityCore struct {
 }
 
 // NewDataEntityCore creates a new DataEntityCore with the given parameters.
-func NewDataEntityCore(id uint64, name string, typ EntityType, tags ...Tag) *DataEntityCore {
+func NewDataEntityCore(id string, name string, typ EntityType, tags ...Tag) *DataEntityCore {
 	return &DataEntityCore{
 		EntityCore: NewEntityCore(id, name, typ, tags...),
 		dirty:      make(map[ComponentType]struct{}),

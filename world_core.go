@@ -63,7 +63,7 @@ func NewCoreWorld(name string, opts ...WorldOption) *CoreWorld {
 		}
 	}
 	if _, ok := w.entityManagers.Load(defaultEntityManagerName); !ok {
-		defaultManager := NewEntityManager(func(id uint64, entityName string, typ EntityType, tags ...Tag) (DataEntity, error) {
+		defaultManager := NewEntityManager(func(id string, entityName string, typ EntityType, tags ...Tag) (DataEntity, error) {
 			return NewDataEntityCore(id, entityName, typ, tags...), nil
 		}, defaultEntityShardCount)
 		w.setEntityManagerLocked(defaultEntityManagerName, defaultManager)

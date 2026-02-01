@@ -37,7 +37,7 @@ func (s *FilePersistenceSystem) Flush(ctx context.Context, w ginka_ecs_go.World)
 				return err
 			}
 			key := sanitizeKey(c.StorageKey())
-			path := filepath.Join(s.baseDir, fmt.Sprintf("%d", ent.Id()), key+".json")
+			path := filepath.Join(s.baseDir, ent.Id(), key+".json")
 			if err := writeFileAtomic(path, payload, 0o644); err != nil {
 				return err
 			}

@@ -13,7 +13,7 @@ type EntityCore struct {
 
 	mu sync.RWMutex
 
-	id   uint64
+	id   string
 	name string
 	typ  EntityType
 
@@ -21,7 +21,7 @@ type EntityCore struct {
 	componentTypes []ComponentType
 }
 
-func NewEntityCore(id uint64, name string, typ EntityType, tags ...Tag) *EntityCore {
+func NewEntityCore(id string, name string, typ EntityType, tags ...Tag) *EntityCore {
 	e := &EntityCore{
 		id:             id,
 		name:           name,
@@ -34,7 +34,7 @@ func NewEntityCore(id uint64, name string, typ EntityType, tags ...Tag) *EntityC
 }
 
 // Id returns the entity's unique identifier.
-func (e *EntityCore) Id() uint64 {
+func (e *EntityCore) Id() string {
 	return e.id
 }
 

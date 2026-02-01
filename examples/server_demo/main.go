@@ -31,7 +31,7 @@ func main() {
 		}
 	}()
 
-	playerId := uint64(1001)
+	playerId := "1001"
 
 	fmt.Println("api: login")
 	if err := authSys.Login(ctx, world, LoginRequest{PlayerId: playerId, Name: "Aki"}); err != nil {

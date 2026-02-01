@@ -52,16 +52,16 @@ func TestHTTPServerFlow(t *testing.T) {
 		}
 	}
 
-	post("/login", map[string]any{"player_id": 1001, "name": "Aki"})
-	post("/add-gold", map[string]any{"player_id": 1001, "amount": 120})
-	post("/rename", map[string]any{"player_id": 1001, "name": "AkiHero"})
-	post("/login", map[string]any{"player_id": 2002, "name": "Mio"})
-	post("/add-gold", map[string]any{"player_id": 2002, "amount": 45})
+	post("/login", map[string]any{"player_id": "1001", "name": "Aki"})
+	post("/add-gold", map[string]any{"player_id": "1001", "amount": 120})
+	post("/rename", map[string]any{"player_id": "1001", "name": "AkiHero"})
+	post("/login", map[string]any{"player_id": "2002", "name": "Mio"})
+	post("/add-gold", map[string]any{"player_id": "2002", "amount": 45})
 
-	checkPlayer := func(id uint64, name string, gold int64) {
+	checkPlayer := func(id string, name string, gold int64) {
 		entity, ok := world.Entities().Get(id)
 		if !ok {
-			t.Fatalf("expected player %d", id)
+			t.Fatalf("expected player %s", id)
 		}
 		profileData, ok := entity.GetData(ComponentTypeProfile)
 		if !ok {
@@ -87,8 +87,8 @@ func TestHTTPServerFlow(t *testing.T) {
 		}
 	}
 
-	checkPlayer(1001, "AkiHero", 120)
-	checkPlayer(2002, "Mio", 45)
+	checkPlayer("1001", "AkiHero", 120)
+	checkPlayer("2002", "Mio", 45)
 
 	if err := persistenceSys.Flush(context.Background(), world); err != nil {
 		t.Fatalf("flush: %v", err)

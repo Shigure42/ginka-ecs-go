@@ -9,7 +9,7 @@ type DataEntityTx interface {
 	Taggable
 
 	// Id is the entity's stable identifier.
-	Id() uint64
+	Id() string
 	// Name is the human-readable label.
 	Name() string
 	// Type categorizes the entity.
@@ -48,7 +48,7 @@ type dataEntityTx struct {
 	entity *DataEntityCore
 }
 
-func (t dataEntityTx) Id() uint64 {
+func (t dataEntityTx) Id() string {
 	return t.entity.id
 }
 

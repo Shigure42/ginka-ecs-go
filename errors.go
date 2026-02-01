@@ -13,7 +13,7 @@ var (
 	ErrEntityAlreadyExists = errors.New("entity already exists")
 	// ErrEntityNotFound indicates the entity manager does not contain an entity for the given id.
 	ErrEntityNotFound = errors.New("entity not found")
-	// ErrInvalidEntityId indicates an operation received an invalid entity id (e.g. 0).
+	// ErrInvalidEntityId indicates an operation received an invalid entity id (e.g. empty string).
 	ErrInvalidEntityId = errors.New("invalid entity id")
 	// ErrSystemAlreadyRegistered indicates a world already has a system registered with the same name.
 	ErrSystemAlreadyRegistered = errors.New("system already registered")

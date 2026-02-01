@@ -33,14 +33,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		PlayerId uint64 `json:"player_id"`
+		PlayerId string `json:"player_id"`
 		Name     string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if req.PlayerId == 0 || req.Name == "" {
+	if req.PlayerId == "" || req.Name == "" {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
@@ -57,14 +57,14 @@ func (s *Server) handleAddGold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		PlayerId uint64 `json:"player_id"`
+		PlayerId string `json:"player_id"`
 		Amount   int64  `json:"amount"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if req.PlayerId == 0 {
+	if req.PlayerId == "" {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
@@ -81,14 +81,14 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		PlayerId uint64 `json:"player_id"`
+		PlayerId string `json:"player_id"`
 		Name     string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if req.PlayerId == 0 || req.Name == "" {
+	if req.PlayerId == "" || req.Name == "" {
 		http.Error(w, "missing fields", http.StatusBadRequest)
 		return
 	}
