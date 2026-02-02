@@ -14,7 +14,7 @@ import (
 func TestServerDemoFlow(t *testing.T) {
 	ctx := context.Background()
 	baseDir := t.TempDir()
-	world := ginka_ecs_go.NewCoreWorld("test-world")
+	world := NewGameWorld("test-world")
 	authSys := &AuthSystem{}
 	profileSys := &ProfileSystem{}
 	walletSys := &WalletSystem{}
@@ -44,28 +44,20 @@ func TestServerDemoFlow(t *testing.T) {
 		t.Fatalf("rename: %v", err)
 	}
 
-	entity, ok := world.Entities().Get(playerId)
+	entity, ok := world.Entities.Get(playerId)
 	if !ok {
 		t.Fatalf("expected player %s", playerId)
 	}
-	profileData, ok := entity.GetData(ComponentTypeProfile)
+	profile, ok := ginka_ecs_go.Get[*ProfileComponent](entity, ComponentTypeProfile)
 	if !ok {
 		t.Fatalf("expected profile component")
-	}
-	profile, ok := profileData.(*ProfileComponent)
-	if !ok {
-		t.Fatalf("profile component type mismatch")
 	}
 	if profile.Name != "AkiHero" {
 		t.Fatalf("profile name = %q", profile.Name)
 	}
-	walletData, ok := entity.GetData(ComponentTypeWallet)
+	wallet, ok := ginka_ecs_go.Get[*WalletComponent](entity, ComponentTypeWallet)
 	if !ok {
 		t.Fatalf("expected wallet component")
-	}
-	wallet, ok := walletData.(*WalletComponent)
-	if !ok {
-		t.Fatalf("wallet component type mismatch")
 	}
 	if wallet.Gold != 120 {
 		t.Fatalf("wallet gold = %d", wallet.Gold)

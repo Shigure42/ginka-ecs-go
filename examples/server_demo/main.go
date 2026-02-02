@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
-
-	ginka_ecs_go "github.com/Shigure42/ginka-ecs-go"
 )
 
 func main() {
 	ctx := context.Background()
-	world := ginka_ecs_go.NewCoreWorld("demo-world")
+	world := NewGameWorld("demo-world")
 	authSys := &AuthSystem{}
 	profileSys := &ProfileSystem{}
 	walletSys := &WalletSystem{}

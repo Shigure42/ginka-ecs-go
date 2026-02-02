@@ -15,7 +15,7 @@ import (
 
 func TestHTTPServerFlow(t *testing.T) {
 	baseDir := t.TempDir()
-	world := ginka_ecs_go.NewCoreWorld("http-world")
+	world := NewGameWorld("http-world")
 	authSys := &AuthSystem{}
 	profileSys := &ProfileSystem{}
 	walletSys := &WalletSystem{}
@@ -59,28 +59,20 @@ func TestHTTPServerFlow(t *testing.T) {
 	post("/add-gold", map[string]any{"player_id": "2002", "amount": 45})
 
 	checkPlayer := func(id string, name string, gold int64) {
-		entity, ok := world.Entities().Get(id)
+		entity, ok := world.Entities.Get(id)
 		if !ok {
 			t.Fatalf("expected player %s", id)
 		}
-		profileData, ok := entity.GetData(ComponentTypeProfile)
+		profile, ok := ginka_ecs_go.Get[*ProfileComponent](entity, ComponentTypeProfile)
 		if !ok {
 			t.Fatalf("expected profile component")
-		}
-		profile, ok := profileData.(*ProfileComponent)
-		if !ok {
-			t.Fatalf("profile component type mismatch")
 		}
 		if profile.Name != name {
 			t.Fatalf("profile name = %q", profile.Name)
 		}
-		walletData, ok := entity.GetData(ComponentTypeWallet)
+		wallet, ok := ginka_ecs_go.Get[*WalletComponent](entity, ComponentTypeWallet)
 		if !ok {
 			t.Fatalf("expected wallet component")
-		}
-		wallet, ok := walletData.(*WalletComponent)
-		if !ok {
-			t.Fatalf("wallet component type mismatch")
 		}
 		if wallet.Gold != gold {
 			t.Fatalf("wallet gold = %d", wallet.Gold)

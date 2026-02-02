@@ -4,18 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-
-	ginka_ecs_go "github.com/Shigure42/ginka-ecs-go"
 )
 
 type Server struct {
-	world   ginka_ecs_go.World
+	world   *GameWorld
 	auth    *AuthSystem
 	wallet  *WalletSystem
 	profile *ProfileSystem
 }
 
-func NewServer(world ginka_ecs_go.World, auth *AuthSystem, wallet *WalletSystem, profile *ProfileSystem) *Server {
+func NewServer(world *GameWorld, auth *AuthSystem, wallet *WalletSystem, profile *ProfileSystem) *Server {
 	return &Server{world: world, auth: auth, wallet: wallet, profile: profile}
 }
 

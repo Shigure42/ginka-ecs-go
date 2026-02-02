@@ -1,6 +1,6 @@
 package ginka_ecs_go
 
-// World holds entities and registered systems.
+// World coordinates runtime state and registered systems.
 // Scheduling and execution are handled by the caller.
 type World interface {
 	// Run starts the world and blocks until Stop is called.
@@ -16,10 +16,6 @@ type World interface {
 	GetStopWeight() int64
 	SetStopWeight(w int64)
 
-	// Entities returns the default entity manager.
-	Entities() EntityManager[DataEntity]
-	// EntitiesByName returns a named entity manager if it exists.
-	EntitiesByName(name string) (EntityManager[DataEntity], bool)
 	// Register adds systems to the world.
 	// Returns ErrSystemAlreadyRegistered if a system with the same name exists.
 	Register(systems ...System) error

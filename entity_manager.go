@@ -106,7 +106,6 @@ func (m *MapEntityManager[T]) Add(ctx context.Context, ent T) error {
 }
 
 // isNil safely checks if a value is nil, handling interface types correctly.
-// This is needed because comparing interfaces to nil requires special handling.
 func isNil[T any](v T) bool {
 	rv := reflect.ValueOf(v)
 	if !rv.IsValid() {

@@ -22,27 +22,43 @@ func (s *FilePersistenceSystem) Name() string {
 	return "file-persistence"
 }
 
-func (s *FilePersistenceSystem) Flush(ctx context.Context, w ginka_ecs_go.World) error {
+func (s *FilePersistenceSystem) Flush(ctx context.Context, w *GameWorld) error {
 	if s.baseDir == "" {
 		return fmt.Errorf("file persistence: baseDir is empty")
 	}
-	return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
-		dirty := ent.DirtyDataComponents()
-		if len(dirty) == 0 {
+	return w.Entities.ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
+		dirtyTypes := ent.DirtyTypes()
+		if len(dirtyTypes) == 0 {
 			return nil
 		}
-		for _, c := range dirty {
-			payload, err := c.Marshal()
+		persisted := make([]ginka_ecs_go.ComponentType, 0, len(dirtyTypes))
+		for _, t := range dirtyTypes {
+			component, ok := ent.Get(t)
+			if !ok {
+				continue
+			}
+			dataComponent, ok := component.(ginka_ecs_go.DataComponent)
+			if !ok {
+				return fmt.Errorf("file persistence: component %d is not a DataComponent", t)
+			}
+			marshaler, ok := component.(interface{ Marshal() ([]byte, error) })
+			if !ok {
+				return fmt.Errorf("file persistence: component %d does not implement Marshal", t)
+			}
+			payload, err := marshaler.Marshal()
 			if err != nil {
 				return err
 			}
-			key := sanitizeKey(c.StorageKey())
+			key := sanitizeKey(dataComponent.StorageKey())
 			path := filepath.Join(s.baseDir, ent.Id(), key+".json")
 			if err := writeFileAtomic(path, payload, 0o644); err != nil {
 				return err
 			}
+			persisted = append(persisted, t)
 		}
-		ent.ClearDirty()
+		if len(persisted) > 0 {
+			ent.ClearDirty(persisted...)
+		}
 		return nil
 	})
 }

@@ -5,32 +5,7 @@ import (
 	"sync"
 )
 
-type WorldOption func(*CoreWorld)
-
-const defaultEntityManagerName = "default"
-
-func WithEntityManager(m EntityManager[DataEntity]) WorldOption {
-	return func(w *CoreWorld) {
-		if m != nil {
-			w.setEntityManagerLocked(defaultEntityManagerName, m)
-		}
-	}
-}
-
-func WithEntityManagerNamed(name string, m EntityManager[DataEntity]) WorldOption {
-	return func(w *CoreWorld) {
-		if name == "" || m == nil {
-			return
-		}
-		if name == defaultEntityManagerName {
-			w.setEntityManagerLocked(defaultEntityManagerName, m)
-			return
-		}
-		w.setEntityManagerLocked(name, m)
-	}
-}
-
-// CoreWorld is a simple in-process World.
+// CoreWorld manages system registration and runtime lifecycle.
 type CoreWorld struct {
 	name string
 
@@ -42,31 +17,17 @@ type CoreWorld struct {
 	stopChan   chan struct{}
 	stopAwait  chan struct{}
 
-	entityManagers sync.Map
-
 	systemNames sync.Map
 
 	systems []System
 }
 
-// NewCoreWorld creates a new world.
-// If no EntityManager is provided, it creates a MapEntityManager with DataEntityCore.
-func NewCoreWorld(name string, opts ...WorldOption) *CoreWorld {
+// NewCoreWorld creates a new CoreWorld.
+func NewCoreWorld(name string) *CoreWorld {
 	w := &CoreWorld{
 		name:      name,
 		stopChan:  make(chan struct{}, 1),
 		stopAwait: make(chan struct{}, 1),
-	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(w)
-		}
-	}
-	if _, ok := w.entityManagers.Load(defaultEntityManagerName); !ok {
-		defaultManager := NewEntityManager(func(id string, entityName string, typ EntityType, tags ...Tag) (DataEntity, error) {
-			return NewDataEntityCore(id, entityName, typ, tags...), nil
-		}, defaultEntityShardCount)
-		w.setEntityManagerLocked(defaultEntityManagerName, defaultManager)
 	}
 	return w
 }
@@ -134,27 +95,6 @@ func (w *CoreWorld) SetStopWeight(weight int64) {
 	w.stopWeight = weight
 }
 
-func (w *CoreWorld) Entities() EntityManager[DataEntity] {
-	if m, ok := w.entityManagers.Load(defaultEntityManagerName); ok {
-		manager, ok := m.(EntityManager[DataEntity])
-		if ok {
-			return manager
-		}
-	}
-	return nil
-}
-
-func (w *CoreWorld) EntitiesByName(name string) (EntityManager[DataEntity], bool) {
-	if name == "" {
-		name = defaultEntityManagerName
-	}
-	if m, ok := w.entityManagers.Load(name); ok {
-		manager, ok := m.(EntityManager[DataEntity])
-		return manager, ok
-	}
-	return nil, false
-}
-
 func (w *CoreWorld) Register(systems ...System) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -184,13 +124,6 @@ func (w *CoreWorld) Systems() []System {
 	out := make([]System, len(w.systems))
 	copy(out, w.systems)
 	return out
-}
-
-func (w *CoreWorld) setEntityManagerLocked(name string, m EntityManager[DataEntity]) {
-	if name == "" || m == nil {
-		return
-	}
-	w.entityManagers.Store(name, m)
 }
 
 var _ World = (*CoreWorld)(nil)

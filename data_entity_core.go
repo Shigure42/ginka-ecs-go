@@ -4,9 +4,8 @@ import (
 	"fmt"
 )
 
-// DataEntityCore is a basic DataEntity implementation.
-// It tracks DataComponent attachment, mutation, and dirty state.
-// Persistence is implemented elsewhere (World or adapter layer).
+// DataEntityCore is a DataEntity implementation with dirty tracking.
+// Use Tx for consistent updates.
 type DataEntityCore struct {
 	*EntityCore
 	dirty      map[ComponentType]struct{}
@@ -23,7 +22,7 @@ func NewDataEntityCore(id string, name string, typ EntityType, tags ...Tag) *Dat
 }
 
 // Tx executes fn with an exclusive lock for consistent updates.
-func (e *DataEntityCore) Tx(fn func(tx DataEntityTx) error) error {
+func (e *DataEntityCore) Tx(fn func(tx DataEntity) error) error {
 	if fn == nil {
 		return fmt.Errorf("data entity tx: nil fn")
 	}
@@ -32,26 +31,11 @@ func (e *DataEntityCore) Tx(fn func(tx DataEntityTx) error) error {
 	return fn(dataEntityTx{entity: e})
 }
 
-// GetData retrieves a data component by type.
-func (e *DataEntityCore) GetData(t ComponentType) (DataComponent, bool) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.getDataUnlocked(t)
-}
-
-// SetData attaches or replaces a data component.
-func (e *DataEntityCore) SetData(c DataComponent) error {
+// GetForUpdate retrieves a component and marks it dirty if it is a DataComponent.
+func (e *DataEntityCore) GetForUpdate(t ComponentType) (Component, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.setDataUnlocked(c)
-}
-
-// LoadData attaches a data component without bumping version or marking dirty.
-// Used when loading from persistence.
-func (e *DataEntityCore) LoadData(c DataComponent) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.loadDataUnlocked(c)
+	return e.getForUpdateUnlocked(t)
 }
 
 // DirtyTypes returns a copy of dirty component types.
@@ -61,13 +45,6 @@ func (e *DataEntityCore) DirtyTypes() []ComponentType {
 	return e.dirtyTypesUnlocked()
 }
 
-// DirtyDataComponents returns a copy of dirty data components in mark order.
-func (e *DataEntityCore) DirtyDataComponents() []DataComponent {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.dirtyDataComponentsUnlocked()
-}
-
 // ClearDirty removes the dirty flag from the specified component types.
 func (e *DataEntityCore) ClearDirty(types ...ComponentType) {
 	e.mu.Lock()
@@ -75,56 +52,18 @@ func (e *DataEntityCore) ClearDirty(types ...ComponentType) {
 	e.clearDirtyUnlocked(types...)
 }
 
-func (e *DataEntityCore) getDataUnlocked(t ComponentType) (DataComponent, bool) {
+func (e *DataEntityCore) getForUpdateUnlocked(t ComponentType) (Component, bool) {
 	c, ok := e.getComponentUnlocked(t)
 	if !ok {
 		return nil, false
 	}
 	dc, ok := c.(DataComponent)
-	return dc, ok
-}
-
-func (e *DataEntityCore) setDataUnlocked(c DataComponent) error {
-	if isNil(c) {
-		return fmt.Errorf("set data: %w", ErrNilComponent)
+	if !ok {
+		return c, true
 	}
-	t := c.ComponentType()
-
-	// Replace existing data component of the same type.
-	if existing, ok := e.getComponentUnlocked(t); ok {
-		existingData, ok := existing.(DataComponent)
-		if !ok {
-			return fmt.Errorf("set data %d: existing component is not a DataComponent", t)
-		}
-		// Keep insertion order stable: replace in-place.
-		c.SetVersion(existingData.Version())
-		c.BumpVersion()
-		e.components[t] = c
-		e.markDirtyUnlocked(t)
-		return nil
-	}
-	if err := e.addComponentUnlocked(c); err != nil {
-		return err
-	}
-	c.BumpVersion()
+	dc.BumpVersion()
 	e.markDirtyUnlocked(t)
-	return nil
-}
-
-func (e *DataEntityCore) loadDataUnlocked(c DataComponent) error {
-	if isNil(c) {
-		return fmt.Errorf("load data: %w", ErrNilComponent)
-	}
-	t := c.ComponentType()
-
-	if existing, ok := e.getComponentUnlocked(t); ok {
-		if _, ok := existing.(DataComponent); !ok {
-			return fmt.Errorf("load data %d: existing component is not a DataComponent", t)
-		}
-		e.components[t] = c
-		return nil
-	}
-	return e.addComponentUnlocked(c)
+	return c, true
 }
 
 func (e *DataEntityCore) dirtyTypesUnlocked() []ComponentType {
@@ -133,21 +72,6 @@ func (e *DataEntityCore) dirtyTypesUnlocked() []ComponentType {
 	}
 	out := make([]ComponentType, len(e.dirtyTypes))
 	copy(out, e.dirtyTypes)
-	return out
-}
-
-func (e *DataEntityCore) dirtyDataComponentsUnlocked() []DataComponent {
-	if len(e.dirtyTypes) == 0 {
-		return nil
-	}
-	out := make([]DataComponent, 0, len(e.dirtyTypes))
-	for _, t := range e.dirtyTypes {
-		c, ok := e.getDataUnlocked(t)
-		if !ok {
-			continue
-		}
-		out = append(out, c)
-	}
 	return out
 }
 
@@ -177,6 +101,95 @@ func (e *DataEntityCore) clearDirtyUnlocked(types ...ComponentType) {
 			}
 		}
 	}
+}
+
+type dataEntityTx struct {
+	entity *DataEntityCore
+}
+
+func (t dataEntityTx) Id() string {
+	return t.entity.id
+}
+
+func (t dataEntityTx) Name() string {
+	return t.entity.name
+}
+
+func (t dataEntityTx) Type() EntityType {
+	return t.entity.typ
+}
+
+func (t dataEntityTx) Enabled() bool {
+	return t.entity.enabledUnlocked()
+}
+
+func (t dataEntityTx) SetEnabled(enabled bool) {
+	t.entity.setEnabledUnlocked(enabled)
+}
+
+func (t dataEntityTx) Tags() []Tag {
+	return t.entity.tagsUnlocked()
+}
+
+func (t dataEntityTx) HasTag(tag Tag) bool {
+	return t.entity.hasTagUnlocked(tag)
+}
+
+func (t dataEntityTx) AddTag(tag Tag) bool {
+	return t.entity.addTagUnlocked(tag)
+}
+
+func (t dataEntityTx) RemoveTag(tag Tag) bool {
+	return t.entity.removeTagUnlocked(tag)
+}
+
+func (t dataEntityTx) Has(ct ComponentType) bool {
+	_, ok := t.entity.getComponentUnlocked(ct)
+	return ok
+}
+
+func (t dataEntityTx) Get(ct ComponentType) (Component, bool) {
+	return t.entity.getComponentUnlocked(ct)
+}
+
+func (t dataEntityTx) MustGet(ct ComponentType) Component {
+	c, ok := t.entity.getComponentUnlocked(ct)
+	if !ok {
+		panic(fmt.Errorf("must get component %d: %w", ct, ErrComponentNotFound))
+	}
+	return c
+}
+
+func (t dataEntityTx) Add(c Component) error {
+	return t.entity.addComponentUnlocked(c)
+}
+
+func (t dataEntityTx) RemoveComponent(ct ComponentType) bool {
+	return t.entity.removeComponentUnlocked(ct)
+}
+
+func (t dataEntityTx) RemoveComponents(types []ComponentType) int {
+	return t.entity.removeComponentsUnlocked(types)
+}
+
+func (t dataEntityTx) AllComponents() []Component {
+	return t.entity.allComponentsUnlocked()
+}
+
+func (t dataEntityTx) DirtyTypes() []ComponentType {
+	return t.entity.dirtyTypesUnlocked()
+}
+
+func (t dataEntityTx) ClearDirty(types ...ComponentType) {
+	t.entity.clearDirtyUnlocked(types...)
+}
+
+func (t dataEntityTx) GetForUpdate(ct ComponentType) (Component, bool) {
+	return t.entity.getForUpdateUnlocked(ct)
+}
+
+func (t dataEntityTx) Tx(fn func(tx DataEntity) error) error {
+	return fmt.Errorf("data entity tx: nested tx not supported")
 }
 
 // Must satisfy DataEntity.

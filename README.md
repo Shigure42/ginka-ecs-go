@@ -1,26 +1,38 @@
-# ginka-ecs-go Documentation
 # ginka-ecs-go
+
+A lightweight, in-process Entity-Component-System (ECS) library for Go. Designed for simplicity and clarity, with built-in support for entity management, component composition, system registration, and persistence with dirty tracking.
 
 ## Overview
 
-ginka-ecs-go is a lightweight, in-process Entity-Component-System (ECS) library for Go. It provides a simple API for managing game entities and game logic, with built-in support for:
+ginka-ecs-go provides a minimal ECS API that follows Go conventions:
 
-- **Entity management**: Create, retrieve, and delete entities with stable IDs
-- **Component composition**: Attach data-bearing components to entities
-- **System registry**: Register systems by name (execution is caller-owned)
-- **Persistence**: Dirty tracking and serialization for data components
+- **Entity** - A container for components with a stable ID, name, and type
+- **Component** - Pure data attached to entities
+- **System** - Business logic that processes entities
+- **World** - Runtime coordinator for systems and lifecycle
+
+The library is intentionally minimal: scheduling and execution are caller-owned, giving you full control over your game or application loop.
 
 ## Core Concepts
 
 ### Entity
 
-An entity is a container for components. It has a stable ID (e.g., player ID), a human-readable name, and a type category. Entities do not contain logic or data themselves - only components hold data.
+An entity is a lightweight container that groups components together. It has:
+
+- A stable identifier (string ID, e.g., player ID from authentication)
+- A human-readable name
+- An entity type category
+
+Entities do not contain data or logic themselves—only components hold data.
 
 ```go
 type Entity interface {
-    Id() uint64           // Stable identifier
-    Name() string         // Human-readable name
-    Type() EntityType     // Category type
+    // Identity
+    Id() string
+    Name() string
+    Type() EntityType
+
+    // Component access
     Has(t ComponentType) bool
     Get(t ComponentType) (Component, bool)
     MustGet(t ComponentType) Component
@@ -28,6 +40,8 @@ type Entity interface {
     RemoveComponent(t ComponentType) bool
     RemoveComponents(types []ComponentType) int
     AllComponents() []Component
+
+    // Activatable and Taggable are embedded
 }
 ```
 
@@ -35,34 +49,30 @@ Entities also implement `Activatable` (Enabled/SetEnabled) and `Taggable` (Tags,
 
 ### Component
 
-A component is a piece of data attached to an entity. Each component has a unique `ComponentType` identifier. Components should be pure data holders without business logic.
+A component is a piece of data attached to an entity. Components should be pure data holders without business logic.
 
 ```go
 type Component interface {
     ComponentType() ComponentType
+    // Activatable and Taggable are embedded
 }
 ```
-
-Components also implement `Activatable` and `Taggable`, allowing individual components to be disabled or tagged.
 
 For persistence-capable components, use `DataComponent`:
 
 ```go
 type DataComponent interface {
     Component
-    StorageKey() string      // Storage identifier (e.g., table name)
-    Version() uint64
-    SetVersion(uint64)
-    BumpVersion() uint64
-    Marshal() ([]byte, error)
-    Unmarshal([]byte) error
+    StorageKey() string      // Storage identifier (e.g., table name, file key)
+    Version() uint64         // Current version for optimistic concurrency
+    SetVersion(v uint64)
+    BumpVersion() uint64     // Increment version by 1
 }
 ```
 
 ### System
 
-Systems contain the business logic that processes entities. The ECS library only
-requires a system name; execution is up to your scheduler/runner.
+Systems contain business logic that processes entities. The library only requires a system name; execution is up to your scheduler.
 
 ```go
 type System interface {
@@ -72,27 +82,71 @@ type System interface {
 
 ### World
 
-The world is the central container that manages all entities, components, and systems.
-Scheduling and execution are handled by the caller.
+The World interface coordinates runtime state and registered systems.
 
 ```go
 type World interface {
-    Run() error
-    Stop() error
+    // Lifecycle
+    Run() error      // Starts the world, blocks until Stop is called
+    Stop() error     // Signals Run to exit
     GetName() string
     IsRunning() bool
     GetStopWeight() int64
     SetStopWeight(w int64)
-    Entities() EntityManager[DataEntity]
-    EntitiesByName(name string) (EntityManager[DataEntity], bool)
+
+    // System registration
     Register(systems ...System) error
     Systems() []System
 }
 ```
 
-`CoreWorld` is the primary implementation, providing storage and system registration.
+**Note**: The `World` interface does not include entity management. Entity management is handled separately by `EntityManager`, allowing you to compose your own world structure.
 
-## Quick Start Guide
+## Architecture
+
+### CoreWorld
+
+`CoreWorld` is the primary World implementation. It manages system registration and runtime lifecycle.
+
+```go
+// Create a new CoreWorld
+world := ginka_ecs_go.NewCoreWorld("my-game")
+```
+
+### EntityManager
+
+`EntityManager[T Entity]` manages entity lifecycle with sharded maps for concurrency safety.
+
+```go
+// Create an entity manager for DataEntity
+entities := ginka_ecs_go.NewEntityManager(func(id string, name string, typ ginka_ecs_go.EntityType, tags ...ginka_ecs_go.Tag) (ginka_ecs_go.DataEntity, error) {
+    return ginka_ecs_go.NewDataEntityCore(id, name, typ, tags...), nil
+}, 128) // shard count
+
+// Create an entity
+player, err := entities.Create(ctx, "player-1001", "Player1", EntityTypePlayer)
+```
+
+### Business World Pattern
+
+Since `World` does not include entity management, create a business-specific world that combines `CoreWorld` with your `EntityManager`:
+
+```go
+type GameWorld struct {
+    *ginka_ecs_go.CoreWorld
+    Entities ginka_ecs_go.EntityManager[ginka_ecs_go.DataEntity]
+}
+
+func NewGameWorld(name string) *GameWorld {
+    entities := ginka_ecs_go.NewEntityManager(factory, 128)
+    return &GameWorld{
+        CoreWorld: ginka_ecs_go.NewCoreWorld(name),
+        Entities:  entities,
+    }
+}
+```
+
+## Quick Start
 
 ### 1. Define Component Types
 
@@ -101,19 +155,19 @@ package mygame
 
 import (
     "encoding/json"
+    "fmt"
 
-    "github.com/Shigure42/ginka-ecs-go"
+    ginka_ecs_go "github.com/Shigure42/ginka-ecs-go"
 )
 
 const (
     ComponentTypePosition ginka_ecs_go.ComponentType = iota + 1
-    ComponentTypeVelocity
-    ComponentTypeHealth
+    ComponentTypeWallet
 )
 
 type PositionComponent struct {
     ginka_ecs_go.DataComponentCore
-    X, Y float64
+    X, Y float64 `json:"x,y"`
 }
 
 func NewPositionComponent(x, y float64) *PositionComponent {
@@ -124,45 +178,15 @@ func NewPositionComponent(x, y float64) *PositionComponent {
     }
 }
 
-// Implement DataComponent for persistence
-func (c *PositionComponent) StorageKey() string   { return "position" }
-func (c *PositionComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
-func (c *PositionComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
+func (c *PositionComponent) StorageKey() string { return "position" }
 
-type VelocityComponent struct {
-    ginka_ecs_go.DataComponentCore
-    X, Y float64
+func (c *PositionComponent) Marshal() ([]byte, error) {
+    return json.Marshal(c)
 }
 
-func NewVelocityComponent(x, y float64) *VelocityComponent {
-    return &VelocityComponent{
-        DataComponentCore: ginka_ecs_go.NewDataComponentCore(ComponentTypeVelocity),
-        X:                 x,
-        Y:                 y,
-    }
+func (c *PositionComponent) Unmarshal(data []byte) error {
+    return json.Unmarshal(data, c)
 }
-
-func (c *VelocityComponent) StorageKey() string   { return "velocity" }
-func (c *VelocityComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
-func (c *VelocityComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
-
-type HealthComponent struct {
-    ginka_ecs_go.DataComponentCore
-    HP    int
-    MaxHP int
-}
-
-func NewHealthComponent(hp, maxHP int) *HealthComponent {
-    return &HealthComponent{
-        DataComponentCore: ginka_ecs_go.NewDataComponentCore(ComponentTypeHealth),
-        HP:                hp,
-        MaxHP:             maxHP,
-    }
-}
-
-func (c *HealthComponent) StorageKey() string   { return "health" }
-func (c *HealthComponent) Marshal() ([]byte, error)   { return json.Marshal(c) }
-func (c *HealthComponent) Unmarshal(data []byte) error { return json.Unmarshal(data, c) }
 ```
 
 ### 2. Define Entity Types and Tags
@@ -170,201 +194,157 @@ func (c *HealthComponent) Unmarshal(data []byte) error { return json.Unmarshal(d
 ```go
 const (
     EntityTypePlayer ginka_ecs_go.EntityType = iota + 1
-    EntityTypeEnemy
     EntityTypeNPC
 )
 
-type PlayerTag    ginka_ecs_go.Tag
-type MobTag       ginka_ecs_go.Tag
-type PersistentTag ginka_ecs_go.Tag
+type TagPlayer ginka_ecs_go.Tag = "player"
 ```
 
-### 3. Define Request Types
-
-Requests are plain structs that your systems consume.
+### 3. Implement Systems
 
 ```go
-type LoginRequest struct {
-    PlayerID uint64
-    Username string
-}
-type MoveRequest struct {
-    PlayerID uint64
-    X, Y     float64
-}
-```
-
-### 4. Implement Systems
-
-```go
-type AuthSystem struct{}
-
-func (s *AuthSystem) Name() string { return "auth" }
-
-func (s *AuthSystem) Login(ctx context.Context, w ginka_ecs_go.World, req LoginRequest) error {
-    if _, exists := w.Entities().Get(req.PlayerID); exists {
-        return nil
-    }
-
-    player, err := w.Entities().Create(ctx, req.PlayerID, req.Username, EntityTypePlayer, PlayerTag("active"))
-    if err != nil {
-        return err
-    }
-
-    if err := player.SetData(NewPositionComponent(0, 0)); err != nil {
-        return err
-    }
-    if err := player.SetData(NewVelocityComponent(0, 0)); err != nil {
-        return err
-    }
-    if err := player.SetData(NewHealthComponent(100, 100)); err != nil {
-        return err
-    }
-
-    return nil
-}
-
 type MovementSystem struct{}
 
 func (s *MovementSystem) Name() string { return "movement" }
 
-func (s *MovementSystem) Tick(ctx context.Context, w ginka_ecs_go.World, dt time.Duration) error {
-    return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
+func (s *MovementSystem) Update(ctx context.Context, w *GameWorld, dt float64) error {
+    return w.Entities.ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
         if !ent.Enabled() {
             return nil
         }
 
-        pos, ok := ent.GetData(ComponentTypePosition)
+        pos, ok := ginka_ecs_go.GetForUpdate[*PositionComponent](ent, ComponentTypePosition)
         if !ok {
             return nil
         }
 
-        vel, ok := ent.GetData(ComponentTypeVelocity)
-        if !ok {
-            return nil
-        }
-
-        velC := vel.(*VelocityComponent)
-        if err := ginka_ecs_go.UpdateData(ent, ComponentTypePosition, func(c ginka_ecs_go.DataComponent) error {
-            posC := c.(*PositionComponent)
-            posC.X += velC.X * dt.Seconds()
-            posC.Y += velC.Y * dt.Seconds()
-            return nil
-        }); err != nil {
-            return err
-        }
+        // Direct modification - version already bumped by GetForUpdate
+        pos.X += 10 * dt
+        pos.Y += 5 * dt
 
         return nil
     })
 }
 ```
 
-### 5. Initialize and Run the World
+### 4. Initialize and Run
 
 ```go
 func main() {
     ctx := context.Background()
+    world := NewGameWorld("my-game")
 
-    world := ginka_ecs_go.NewCoreWorld("game-world")
-    auth := &AuthSystem{}
-    movement := &MovementSystem{}
-
-    if err := world.Register(auth, movement); err != nil {
+    movementSys := &MovementSystem{}
+    if err := world.Register(movementSys); err != nil {
         log.Fatal(err)
     }
 
-    runDone := make(chan error, 1)
+    // Start world in background
     go func() {
-        runDone <- world.Run()
-    }()
-    defer func() {
-        _ = world.Stop()
-        if err := <-runDone; err != nil {
-            log.Println(err)
+        if err := world.Run(); err != nil {
+            log.Printf("world stopped: %v", err)
         }
     }()
+    defer world.Stop()
 
-    if err := auth.Login(ctx, world, LoginRequest{PlayerID: 1001, Username: "Player1"}); err != nil {
+    // Create a player entity
+    player, err := world.Entities.Create(ctx, "player-1", "Player1", EntityTypePlayer, TagPlayer)
+    if err != nil {
         log.Fatal(err)
     }
 
-    if err := movement.Tick(ctx, world, 16*time.Millisecond); err != nil {
+    // Add components inside a transaction for consistent updates
+    player.Tx(func(tx ginka_ecs_go.DataEntity) error {
+        tx.Add(NewPositionComponent(0, 0))
+        tx.GetForUpdate(ComponentTypePosition) // Mark as dirty for persistence
+        return nil
+    })
+
+    // Run systems
+    if err := movementSys.Update(ctx, world, 0.016); err != nil {
         log.Fatal(err)
     }
 }
 ```
 
-## Detailed Usage
+## Usage Patterns
 
-### Entity IDs
+### Reading Components
 
-Entity IDs must be non-zero. For server applications, use externally assigned IDs (e.g., player ID from authentication). For client-only games, you can generate IDs using a snowflake-style generator or a simple incrementing counter.
-
-```go
-// Invalid - will return ErrInvalidEntityId
-world.Entities().Create(ctx, 0, "test", EntityTypePlayer)
-
-// Valid - use meaningful IDs
-player, err := world.Entities().Create(ctx, 1001, "Player1", EntityTypePlayer)
-```
-
-### Component Management
-
-Components are attached to entities and accessed by type. Each entity can have at most one component per `ComponentType`.
+Use the helper functions for type-safe component access:
 
 ```go
-// Add a component
-player.SetData(NewHealthComponent(100, 100))
-
-// Get a component
-health, ok := player.GetData(ComponentTypeHealth)
+// Read-only access
+pos, ok := ginka_ecs_go.Get[*PositionComponent](entity, ComponentTypePosition)
 if !ok {
     // Component not found
 }
-
-// Update a component (bumps version and marks dirty)
-if err := ginka_ecs_go.UpdateData(player, ComponentTypeHealth, func(c ginka_ecs_go.DataComponent) error {
-    health := c.(*HealthComponent)
-    health.HP -= damage
-    return nil
-}); err != nil {
-    // Handle error
-}
-
-// Remove a component
-player.RemoveComponent(ComponentTypeHealth)
+// Use pos.X, pos.Y...
 ```
 
-### Dirty Tracking
+### Modifying Components with Dirty Tracking
 
-`DataEntity` tracks which component types have been modified since last clear. This is useful for efficient persistence.
+Call `GetForUpdate` to get a component and mark it dirty in one step:
 
 ```go
-// Check which components are dirty
-for _, c := range player.DirtyDataComponents() {
-    // Persist c...
-}
-
-// Clear dirty flags after persistence
-player.ClearDirty()
+entity.Tx(func(tx ginka_ecs_go.DataEntity) error {
+    pos, ok := ginka_ecs_go.GetForUpdate[*PositionComponent](tx, ComponentTypePosition)
+    if !ok {
+        return ginka_ecs_go.ErrComponentNotFound
+    }
+    pos.X = 100
+    pos.Y = 200
+    return nil
+})
 ```
 
-### Tags
+**Important**: `GetForUpdate` automatically:
+1. Bumps the component's version number
+2. Marks the component as dirty for persistence
 
-Tags are string identifiers for categorizing entities and components.
+### Transactions
+
+Use `Tx` for consistent, thread-safe updates:
+
+```go
+entity.Tx(func(tx ginka_ecs_go.DataEntity) error {
+    // Multiple operations in a single lock
+    tx.Add(component1)
+    tx.Add(component2)
+    // All operations complete before other threads see changes
+    return nil
+})
+```
+
+### Dirty Tracking for Persistence
+
+`DataEntity` tracks which component types have been modified:
+
+```go
+// Get dirty component types
+dirtyTypes := entity.DirtyTypes()
+
+// Clear dirty flags after persistence
+entity.ClearDirty(dirtyTypes...)
+
+// Or clear all
+entity.ClearDirty()
+```
+
+### Tagging
 
 ```go
 // Add tags when creating entity
-player, _ := world.Entities().Create(ctx, 1001, "Player1", EntityTypePlayer, PlayerTag("vip"))
+player, _ := world.Entities.Create(ctx, "p1", "Player1", EntityTypePlayer, TagPlayer)
 
 // Check tags
-if player.HasTag(PlayerTag("vip")) {
-    // Apply VIP benefits
+if player.HasTag(TagPlayer) {
+    // Apply player-specific logic
 }
 
 // Add/remove tags
-player.AddTag(PersistentTag("needs-save"))
-player.RemoveTag(PlayerTag("offline"))
+player.AddTag(TagVIP)
+player.RemoveTag(TagPlayer)
 
 // Get all tags
 tags := player.Tags()
@@ -372,92 +352,62 @@ tags := player.Tags()
 
 ### Enabled State
 
-Entities and components have an enabled flag that controls whether they participate in systems.
-
 ```go
 // Disable an entity
 player.SetEnabled(false)
 
-// Disabled entities are still accessible via Get/Has,
-// but your systems should check Enabled() before processing
+// Systems should check Enabled() before processing
+if !entity.Enabled() {
+    return nil // Skip this entity
+}
 
-// Enable an entity
+// Re-enable
 player.SetEnabled(true)
-```
-
-### Scheduling
-
-This library does not provide a scheduler. Run your systems from your own loop or
-runner, and pass the world into your system methods.
-
-### Context Cancellation
-
-All operations accept a context for cancellation:
-
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer cancel()
-
-// Create will return context.DeadlineExceeded if it takes too long
-player, err := world.Entities().Create(ctx, 1001, "Player1", EntityTypePlayer)
-
-// Entity manager operations will return context.Canceled if the context is cancelled
-```
-
-## World Options
-
-`CoreWorld` supports several options:
-
-```go
-// Provide custom entity manager
-WithEntityManager(customManager)
-
-// Provide named entity manager
-WithEntityManagerNamed("npc", npcManager)
-
-```
-
-### Multiple Entity Managers
-
-If you want to manage different entity sets separately (e.g. players vs. NPCs),
-register named managers and access them via `EntitiesByName`.
-
-The default manager is registered under the name `default` and is returned by `Entities()`.
-
-```go
-playerManager := ginka_ecs_go.NewEntityManager(playerFactory, 128)
-npcManager := ginka_ecs_go.NewEntityManager(npcFactory, 128)
-world := ginka_ecs_go.NewCoreWorld("game-world",
-    ginka_ecs_go.WithEntityManagerNamed("players", playerManager),
-    ginka_ecs_go.WithEntityManagerNamed("npcs", npcManager),
-)
-
-players, _ := world.EntitiesByName("players")
-npcs, _ := world.EntitiesByName("npcs")
 ```
 
 ## Persistence Pattern
 
-A common pattern for persistence is a system method that flushes dirty components.
-Call it from your scheduler or service loop.
+A common pattern is a persistence system that flushes dirty components:
 
 ```go
 type PersistenceSystem struct {
     db Database
 }
 
-func (s *PersistenceSystem) Name() string { return "persistence" }
+func (s *PersistenceSystem) Flush(ctx context.Context, w *GameWorld) error {
+    return w.Entities.ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
+        dirtyTypes := ent.DirtyTypes()
+        if len(dirtyTypes) == 0 {
+            return nil
+        }
 
-func (s *PersistenceSystem) Flush(ctx context.Context, w ginka_ecs_go.World) error {
-    return w.Entities().ForEach(ctx, func(ent ginka_ecs_go.DataEntity) error {
-        for _, c := range ent.DirtyDataComponents() {
-            data, _ := c.Marshal()
-            if err := s.db.Save(ent.Id(), c.StorageKey(), data); err != nil {
+        for _, t := range dirtyTypes {
+            component, ok := ent.Get(t)
+            if !ok {
+                continue
+            }
+
+            dataComponent, ok := component.(ginka_ecs_go.DataComponent)
+            if !ok {
+                continue // Not a persistable component
+            }
+
+            marshaler, ok := component.(interface{ Marshal() ([]byte, error) })
+            if !ok {
+                continue // Component doesn't support marshaling
+            }
+
+            data, err := marshaler.Marshal()
+            if err != nil {
+                return err
+            }
+
+            if err := s.db.Save(ent.Id(), dataComponent.StorageKey(), data); err != nil {
                 return err
             }
         }
-        ent.ClearDirty()
 
+        ent.ClearDirty(dirtyTypes...)
         return nil
     })
 }
@@ -469,34 +419,70 @@ The library defines standard errors:
 
 ```go
 var (
-    ErrComponentAlreadyExists // Entity already has this component type
-    ErrComponentNotFound      // Entity doesn't have this component type
-    ErrNilComponent           // Nil component provided
-    ErrEntityAlreadyExists    // Entity with this ID already exists
-    ErrEntityNotFound         // Entity with this ID not found
-    ErrInvalidEntityId        // Zero ID provided
-    ErrSystemAlreadyRegistered// Duplicate system name
-    ErrWorldAlreadyRunning    // Operation requires stopped world
+    ErrComponentAlreadyExists  // Entity already has this component type
+    ErrComponentNotFound       // Entity doesn't have this component type
+    ErrNilComponent            // Nil component provided
+    ErrEntityAlreadyExists     // Entity with this ID already exists
+    ErrEntityNotFound          // Entity with this ID not found
+    ErrInvalidEntityId         // Empty ID provided
+    ErrSystemAlreadyRegistered // Duplicate system name
+    ErrWorldAlreadyRunning     // Operation requires stopped world
 )
 ```
 
 ## Concurrency Model
 
-- Concurrency safety depends on your systems and data access patterns
-- Entity manager methods are safe for concurrent access
-
-## Complete Example
-
-See `examples/server_demo/` for a fully functional example demonstrating:
-- Component definition with JSON serialization
-- Direct system calls (login, add gold, rename)
-- Persistence flushing via a system method
+- `CoreWorld` uses a mutex for system registration and lifecycle
+- `MapEntityManager` uses sharded RWMutexes for entity operations
+- `EntityCore` uses RWMutex for component operations
+- `DataEntityCore` uses RWMutex for component and dirty tracking operations
+- Transactions (`Tx`) acquire exclusive locks for consistent updates
 
 ## Best Practices
 
 1. **Use typed constants** for ComponentType and EntityType
-2. **Embed DataComponentCore** in data components to reuse enabled/tag behavior and version tracking
-3. **Use UpdateData** (or Tx + SetData) for component updates to ensure dirty tracking
-4. **Use context propagation** for cancellable operations
-5. **Keep scheduling in your application layer**
-6. **Defer world.Stop()** for graceful shutdown
+2. **Embed DataComponentCore** in data components to get version tracking and enabled/tag behavior
+3. **Use `GetForUpdate`** for component modifications to ensure dirty tracking
+4. **Use `Tx`** for consistent, multi-operation updates
+5. **Keep scheduling in your application layer** - the library doesn't provide a scheduler
+6. **Defer `world.Stop()`** for graceful shutdown
+7. **Use context propagation** for cancellable operations
+
+## Example
+
+See `examples/server_demo/` for a complete example demonstrating:
+
+- Component definition with JSON serialization
+- GameWorld composition pattern
+- System implementation with transactions
+- Dirty tracking and file-based persistence
+- HTTP server integration
+
+## API Reference
+
+### Core Interfaces
+
+- `Entity` - Component container with identity and tags
+- `Component` - Data holder attached to entities
+- `DataEntity` - Entity with dirty tracking for persistence
+- `DataComponent` - Persistable component with version tracking
+- `World` - Runtime coordinator
+- `EntityManager[T Entity]` - Entity lifecycle manager
+- `System` - Named business logic processor
+
+### Helper Functions
+
+- `Get[T Component](ent Entity, t ComponentType) (T, bool)` - Type-safe component read
+- `GetForUpdate[T Component](ent DataEntity, t ComponentType) (T, bool)` - Type-safe component read with dirty marking
+
+### Core Types
+
+- `CoreWorld` - World implementation for lifecycle and systems
+- `EntityCore` - Entity implementation
+- `DataEntityCore` - DataEntity implementation
+- `DataComponentCore` - DataComponent implementation
+- `MapEntityManager[T Entity]` - Sharded entity manager
+
+## License
+
+MIT
