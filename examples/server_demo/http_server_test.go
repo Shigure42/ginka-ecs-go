@@ -20,9 +20,6 @@ func TestHTTPServerFlow(t *testing.T) {
 	profileSys := &ProfileSystem{}
 	walletSys := &WalletSystem{}
 	persistenceSys := NewFilePersistenceSystem(baseDir)
-	if err := world.Register(authSys, profileSys, walletSys, persistenceSys); err != nil {
-		t.Fatalf("register systems: %v", err)
-	}
 	runDone := startWorld(t, world)
 	defer func() {
 		if err := world.Stop(); err != nil {

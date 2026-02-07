@@ -228,11 +228,35 @@ func (e *EntityCore) removeComponentsUnlocked(types []ComponentType) int {
 	if len(types) == 0 {
 		return 0
 	}
-	count := 0
+
+	targets := make(map[ComponentType]struct{}, len(types))
 	for _, t := range types {
-		if e.removeComponentUnlocked(t) {
-			count++
+		targets[t] = struct{}{}
+	}
+
+	count := 0
+	for t := range targets {
+		if _, ok := e.components[t]; !ok {
+			continue
 		}
+		delete(e.components, t)
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+
+	filtered := e.componentTypes[:0]
+	for _, t := range e.componentTypes {
+		if _, remove := targets[t]; remove {
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+	if len(filtered) == 0 {
+		e.componentTypes = nil
+	} else {
+		e.componentTypes = filtered
 	}
 	return count
 }

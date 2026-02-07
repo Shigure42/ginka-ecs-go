@@ -13,9 +13,6 @@ func main() {
 	profileSys := &ProfileSystem{}
 	walletSys := &WalletSystem{}
 	persistenceSys := NewFilePersistenceSystem("tmp/server_demo")
-	if err := world.Register(authSys, profileSys, walletSys, persistenceSys); err != nil {
-		log.Fatal(err)
-	}
 	runDone := make(chan error, 1)
 	go func() {
 		runDone <- world.Run()

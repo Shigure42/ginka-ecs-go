@@ -52,6 +52,29 @@ func (e *DataEntityCore) ClearDirty(types ...ComponentType) {
 	e.clearDirtyUnlocked(types...)
 }
 
+// RemoveComponent detaches a component by type and clears dirty state for that type.
+func (e *DataEntityCore) RemoveComponent(t ComponentType) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.removeComponentUnlocked(t) {
+		return false
+	}
+	e.clearDirtyUnlocked(t)
+	return true
+}
+
+// RemoveComponents detaches multiple components by type and clears their dirty state.
+func (e *DataEntityCore) RemoveComponents(types []ComponentType) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	removed := e.removeComponentsUnlocked(types)
+	if removed == 0 {
+		return 0
+	}
+	e.clearDirtyUnlocked(types...)
+	return removed
+}
+
 func (e *DataEntityCore) getForUpdateUnlocked(t ComponentType) (Component, bool) {
 	c, ok := e.getComponentUnlocked(t)
 	if !ok {
@@ -89,17 +112,35 @@ func (e *DataEntityCore) clearDirtyUnlocked(types ...ComponentType) {
 		e.dirtyTypes = nil
 		return
 	}
+
+	targets := make(map[ComponentType]struct{}, len(types))
 	for _, t := range types {
+		targets[t] = struct{}{}
+	}
+
+	removed := 0
+	for t := range targets {
 		if _, ok := e.dirty[t]; !ok {
 			continue
 		}
 		delete(e.dirty, t)
-		for i, existing := range e.dirtyTypes {
-			if existing == t {
-				e.dirtyTypes = append(e.dirtyTypes[:i], e.dirtyTypes[i+1:]...)
-				break
-			}
+		removed++
+	}
+	if removed == 0 {
+		return
+	}
+
+	filtered := e.dirtyTypes[:0]
+	for _, t := range e.dirtyTypes {
+		if _, clearType := targets[t]; clearType {
+			continue
 		}
+		filtered = append(filtered, t)
+	}
+	if len(filtered) == 0 {
+		e.dirtyTypes = nil
+	} else {
+		e.dirtyTypes = filtered
 	}
 }
 
@@ -165,11 +206,20 @@ func (t dataEntityTx) Add(c Component) error {
 }
 
 func (t dataEntityTx) RemoveComponent(ct ComponentType) bool {
-	return t.entity.removeComponentUnlocked(ct)
+	if !t.entity.removeComponentUnlocked(ct) {
+		return false
+	}
+	t.entity.clearDirtyUnlocked(ct)
+	return true
 }
 
 func (t dataEntityTx) RemoveComponents(types []ComponentType) int {
-	return t.entity.removeComponentsUnlocked(types)
+	removed := t.entity.removeComponentsUnlocked(types)
+	if removed == 0 {
+		return 0
+	}
+	t.entity.clearDirtyUnlocked(types...)
+	return removed
 }
 
 func (t dataEntityTx) AllComponents() []Component {

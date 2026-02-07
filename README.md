@@ -1,6 +1,6 @@
 # ginka-ecs-go
 
-A lightweight, in-process Entity-Component-System (ECS) library for Go. Designed for simplicity and clarity, with built-in support for entity management, component composition, system registration, and persistence with dirty tracking.
+A lightweight, in-process Entity-Component-System (ECS) library for Go. Designed for simplicity and clarity, with built-in support for entity management, component composition, and persistence with dirty tracking.
 
 ## Overview
 
@@ -8,10 +8,11 @@ ginka-ecs-go provides a minimal ECS API that follows Go conventions:
 
 - **Entity** - A container for components with a stable ID, name, and type
 - **Component** - Pure data attached to entities
-- **System** - Business logic that processes entities
-- **World** - Runtime coordinator for systems and lifecycle
+- **System** - Business logic that processes entities (application-defined)
+- **World** - Runtime lifecycle coordinator
 
 The library is intentionally minimal: scheduling and execution are caller-owned, giving you full control over your game or application loop.
+The core package provides a minimal `System` interface, but no built-in system registry.
 
 ## Core Concepts
 
@@ -72,7 +73,7 @@ type DataComponent interface {
 
 ### System
 
-Systems contain business logic that processes entities. The library only requires a system name; execution is up to your scheduler.
+Systems contain business logic that processes entities. The core package defines a minimal `System` interface; execution order and scheduling are caller-owned.
 
 ```go
 type System interface {
@@ -82,7 +83,7 @@ type System interface {
 
 ### World
 
-The World interface coordinates runtime state and registered systems.
+The World interface coordinates runtime lifecycle state.
 
 ```go
 type World interface {
@@ -93,10 +94,6 @@ type World interface {
     IsRunning() bool
     GetStopWeight() int64
     SetStopWeight(w int64)
-
-    // System registration
-    Register(systems ...System) error
-    Systems() []System
 }
 ```
 
@@ -106,7 +103,7 @@ type World interface {
 
 ### CoreWorld
 
-`CoreWorld` is the primary World implementation. It manages system registration and runtime lifecycle.
+`CoreWorld` is the primary World implementation. It manages runtime lifecycle only.
 
 ```go
 // Create a new CoreWorld
@@ -167,7 +164,8 @@ const (
 
 type PositionComponent struct {
     ginka_ecs_go.DataComponentCore
-    X, Y float64 `json:"x,y"`
+    X float64 `json:"x"`
+    Y float64 `json:"y"`
 }
 
 func NewPositionComponent(x, y float64) *PositionComponent {
@@ -197,7 +195,7 @@ const (
     EntityTypeNPC
 )
 
-type TagPlayer ginka_ecs_go.Tag = "player"
+const TagPlayer ginka_ecs_go.Tag = "player"
 ```
 
 ### 3. Implement Systems
@@ -235,9 +233,6 @@ func main() {
     world := NewGameWorld("my-game")
 
     movementSys := &MovementSystem{}
-    if err := world.Register(movementSys); err != nil {
-        log.Fatal(err)
-    }
 
     // Start world in background
     go func() {
@@ -255,7 +250,9 @@ func main() {
 
     // Add components inside a transaction for consistent updates
     player.Tx(func(tx ginka_ecs_go.DataEntity) error {
-        tx.Add(NewPositionComponent(0, 0))
+        if err := tx.Add(NewPositionComponent(0, 0)); err != nil {
+            return err
+        }
         tx.GetForUpdate(ComponentTypePosition) // Mark as dirty for persistence
         return nil
     })
@@ -301,6 +298,8 @@ entity.Tx(func(tx ginka_ecs_go.DataEntity) error {
 **Important**: `GetForUpdate` automatically:
 1. Bumps the component's version number
 2. Marks the component as dirty for persistence
+
+Use `GetForUpdateE` when you need to distinguish transaction failures from component-not-found results.
 
 ### Transactions
 
@@ -425,14 +424,13 @@ var (
     ErrEntityAlreadyExists     // Entity with this ID already exists
     ErrEntityNotFound          // Entity with this ID not found
     ErrInvalidEntityId         // Empty ID provided
-    ErrSystemAlreadyRegistered // Duplicate system name
     ErrWorldAlreadyRunning     // Operation requires stopped world
 )
 ```
 
 ## Concurrency Model
 
-- `CoreWorld` uses a mutex for system registration and lifecycle
+- `CoreWorld` uses a mutex for lifecycle state
 - `MapEntityManager` uses sharded RWMutexes for entity operations
 - `EntityCore` uses RWMutex for component operations
 - `DataEntityCore` uses RWMutex for component and dirty tracking operations
@@ -468,16 +466,17 @@ See `examples/server_demo/` for a complete example demonstrating:
 - `DataComponent` - Persistable component with version tracking
 - `World` - Runtime coordinator
 - `EntityManager[T Entity]` - Entity lifecycle manager
-- `System` - Named business logic processor
+- `System` - Named business logic unit
 
 ### Helper Functions
 
 - `Get[T Component](ent Entity, t ComponentType) (T, bool)` - Type-safe component read
 - `GetForUpdate[T Component](ent DataEntity, t ComponentType) (T, bool)` - Type-safe component read with dirty marking
+- `GetForUpdateE[T Component](ent DataEntity, t ComponentType) (T, bool, error)` - Same as `GetForUpdate` with transaction error propagation
 
 ### Core Types
 
-- `CoreWorld` - World implementation for lifecycle and systems
+- `CoreWorld` - World implementation for lifecycle
 - `EntityCore` - Entity implementation
 - `DataEntityCore` - DataEntity implementation
 - `DataComponentCore` - DataComponent implementation

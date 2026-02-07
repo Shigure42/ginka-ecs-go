@@ -15,8 +15,6 @@ var (
 	ErrEntityNotFound = errors.New("entity not found")
 	// ErrInvalidEntityId indicates an operation received an invalid entity id (e.g. empty string).
 	ErrInvalidEntityId = errors.New("invalid entity id")
-	// ErrSystemAlreadyRegistered indicates a world already has a system registered with the same name.
-	ErrSystemAlreadyRegistered = errors.New("system already registered")
 	// ErrWorldAlreadyRunning indicates an operation requires the world to be stopped.
 	ErrWorldAlreadyRunning = errors.New("world already running")
 )
